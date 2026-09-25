@@ -1,449 +1,259 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-<title>CRICMAX — StadiumView</title>
-
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Titillium+Web:ital,wght@0,400;0,600;0,700;0,900;1,700;1,900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
-
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>CRICMAX</title>
+<link href="https://fonts.googleapis.com/css2?family=Titillium+Web:ital,wght@0,900;1,900&family=JetBrains+Mono:wght@700&display=swap" rel="stylesheet">
 <style>
-  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html, body {
-    margin: 0; padding: 0; width: 100%; height: 100%;
-    overflow: hidden; background: #050505;
-    font-family: 'Titillium Web', Arial, sans-serif;
-    color: #fff; -webkit-font-smoothing: antialiased;
-    touch-action: none; user-select: none; -webkit-user-select: none;
-  }
-  canvas { display: block; }
-
-  /* F1 LOADER */
-  #loader {
-    position: fixed; inset: 0; z-index: 9999;
-    display: flex; align-items: center; justify-content: center;
-    background:
-      repeating-linear-gradient(45deg, rgba(255,255,255,.018) 0px, rgba(255,255,255,.018) 2px, transparent 2px, transparent 9px),
-      repeating-linear-gradient(-45deg, rgba(255,255,255,.012) 0px, rgba(255,255,255,.012) 2px, transparent 2px, transparent 9px),
-      radial-gradient(ellipse at 50% 35%, #1a0808 0%, #0a0505 45%, #030303 100%);
-    transition: opacity .7s ease;
-  }
-  #loader.hide { opacity: 0; pointer-events: none; }
-  .f1-stage {
-    width: min(560px, calc(100vw - 32px));
-    padding: 32px 30px 26px;
-    background: linear-gradient(135deg, rgba(15,10,10,.92), rgba(8,8,10,.94));
-    border: 1px solid rgba(255,255,255,.06);
-    border-left: 3px solid #e10600;
-    box-shadow: 0 40px 120px rgba(0,0,0,.9);
-    position: relative;
-  }
-  .f1-mark {
-    font-weight: 900; font-style: italic;
-    font-size: clamp(40px, 10vw, 72px);
-    letter-spacing: 3px; line-height: 1;
-    color: #fff;
-    text-shadow: 5px 5px 0 #e10600, 10px 10px 24px rgba(225,6,0,.35);
-    transform: skewX(-6deg); margin-left: -4px;
-  }
-  .f1-tag { font-size: 10px; font-weight: 700; letter-spacing: 5px; text-transform: uppercase; color: #7a8590; margin-top: 6px; }
-  .f1-lights { display: flex; gap: 12px; justify-content: center; margin: 26px 0 22px; }
-  .f1-light {
-    width: 32px; height: 32px; border-radius: 50%;
-    background: radial-gradient(circle at 35% 30%, #2a2a2a, #0a0a0a 70%);
-    border: 2px solid #1a1a1a;
-    transition: all .35s ease;
-  }
-  .f1-light.on { background: radial-gradient(circle at 35% 30%, #ff3030, #e10600 55%, #7a0400 100%); border-color: #ff4040; box-shadow: 0 0 20px rgba(225,6,0,.9); }
-  .f1-light.go { background: radial-gradient(circle at 35% 30%, #7dff9e, #00e676 55%, #005a2c 100%); border-color: #7dff9e; box-shadow: 0 0 24px rgba(0,230,118,.9); }
-  .f1-status { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
-  .f1-status-main { font-size: 20px; font-weight: 900; font-style: italic; letter-spacing: 3px; text-transform: uppercase; text-shadow: 2px 2px 0 #e10600; }
-  .f1-status-sub { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #7a8590; }
-  .f1-bar { height: 6px; background: rgba(255,255,255,.04); overflow: hidden; margin-bottom: 18px; border-left: 3px solid #e10600; }
-  .f1-bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #e10600, #ff4000 40%, #ffb800); transition: width .3s ease; }
-
-  /* HUD */
-  #hud {
-    position: fixed; top: 12px; left: 12px; right: 12px;
-    display: flex; justify-content: space-between; align-items: flex-start;
-    z-index: 100; pointer-events: none;
-  }
-  #hud .pill {
-    background: rgba(8,8,12,.75);
-    border: 1px solid rgba(255,255,255,.08);
-    border-left: 3px solid #e10600;
-    padding: 6px 12px;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px; letter-spacing: 1px;
-    color: #00e676; border-radius: 3px;
-    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
-  }
-  #hud .pill.fps { color: #ffb800; border-left-color: #ffb800; }
-  #hud .pill.fps.low { color: #ef4444; border-left-color: #ef4444; }
-
-  /* Menu button */
-  #menuBtn {
-    position: fixed; bottom: 20px; right: 20px;
-    width: 56px; height: 56px; border-radius: 50%;
-    background: linear-gradient(135deg, rgba(15,15,20,.95), rgba(8,8,12,.95));
-    border: 2px solid rgba(225,6,0,.5);
-    color: #fff; font-size: 22px;
-    display: flex; align-items: center; justify-content: center;
-    z-index: 500; cursor: pointer;
-    box-shadow: 0 8px 30px rgba(0,0,0,.8), 0 0 20px rgba(225,6,0,.3);
-    transition: transform .15s ease, background .15s ease;
-  }
-  #menuBtn:active { transform: scale(0.9); }
-  #menuBtn.open { background: linear-gradient(135deg, #e10600, #7a0400); border-color: #ff4040; }
-
-  /* Menu panel */
-  #menuPanel {
-    position: fixed; right: 20px; bottom: 90px;
-    width: min(320px, calc(100vw - 40px));
-    max-height: calc(100vh - 140px);
-    overflow-y: auto;
-    background: rgba(8,8,12,.96);
-    border: 1px solid rgba(255,255,255,.08);
-    border-top: 2px solid #e10600;
-    border-radius: 8px;
-    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-    box-shadow: 0 30px 80px rgba(0,0,0,.9);
-    z-index: 499; padding: 14px;
-    transform: translateY(20px) scale(0.95);
-    opacity: 0; pointer-events: none;
-    transition: all .22s cubic-bezier(.34,1.4,.64,1);
-  }
-  #menuPanel.open { transform: translateY(0) scale(1); opacity: 1; pointer-events: auto; }
-  #menuPanel .section {
-    font-size: 9px; letter-spacing: 3px; text-transform: uppercase;
-    color: #7a8590; font-weight: 700;
-    margin: 14px 0 8px; padding-bottom: 4px;
-    border-bottom: 1px solid rgba(255,255,255,.06);
-  }
-  #menuPanel .section:first-of-type { margin-top: 0; }
-  #menuPanel .btn-row { display: flex; flex-wrap: wrap; gap: 6px; }
-  #menuPanel button {
-    background: rgba(255,255,255,.05);
-    border: 1px solid rgba(255,255,255,.08);
-    color: #cfd6dd;
-    font-family: 'Titillium Web', Arial, sans-serif;
-    font-size: 11px; font-weight: 700; letter-spacing: 1px;
-    padding: 8px 10px; border-radius: 4px; cursor: pointer;
-    text-transform: uppercase; transition: all .12s ease;
-    flex: 1 1 auto; min-width: 76px;
-  }
-  #menuPanel button:active { transform: scale(0.94); }
-  #menuPanel button.on {
-    background: rgba(0,230,118,.15); color: #00e676;
-    border-color: rgba(0,230,118,.5);
-    box-shadow: 0 0 12px rgba(0,230,118,.35);
-  }
-  #menuPanel button.time { flex: 1 1 calc(33% - 4px); font-size: 18px; padding: 10px 4px; }
-  #menuPanel button.danger { background: rgba(225,6,0,.15); color: #ff5050; border-color: rgba(225,6,0,.4); }
-  #menuPanel button.auto.on {
-    background: rgba(225,6,0,.3) !important;
-    color: #fff !important;
-    border-color: #ff4040 !important;
-    box-shadow: 0 0 16px rgba(225,6,0,.5);
-  }
-  #menuPanel .hint {
-    font-size: 10px; color: #7a8590;
-    margin-top: 8px; line-height: 1.5;
-    font-family: 'JetBrains Mono', monospace;
-  }
-
-  #pc-toast {
-    position: fixed; bottom: 92px; left: 50%;
-    transform: translateX(-50%);
-    background: rgba(8,8,12,.9);
-    border-left: 3px solid #00e676;
-    border-radius: 3px;
-    padding: 8px 14px;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px; letter-spacing: 1.5px;
-    text-transform: uppercase; color: #00e676;
-    pointer-events: none;
-    opacity: 0; transition: opacity .25s ease;
-    z-index: 400;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    max-width: calc(100vw - 40px);
-  }
-  #pc-toast.show { opacity: 1; }
-
-  @media (max-width: 640px) {
-    .f1-stage { padding: 24px 20px 20px; }
-    .f1-mark { font-size: 42px; text-shadow: 3px 3px 0 #e10600, 6px 6px 14px rgba(225,6,0,.35); }
-    #hud .pill { font-size: 9px; padding: 4px 8px; }
-    #menuBtn { width: 52px; height: 52px; bottom: 16px; right: 16px; font-size: 20px; }
-    #menuPanel { right: 12px; bottom: 80px; width: calc(100vw - 24px); padding: 12px; }
-    #menuPanel button { font-size: 10px; padding: 7px 8px; min-width: 64px; }
-    #pc-toast { bottom: 80px; font-size: 10px; padding: 6px 10px; }
-  }
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#050505;color:#fff;font-family:'Titillium Web',Arial,sans-serif;touch-action:none;user-select:none;-webkit-user-select:none}
+canvas{display:block}
+#loader{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at 50% 35%,#1a0808 0%,#0a0505 45%,#030303 100%);transition:opacity .6s}
+#loader.hide{opacity:0;pointer-events:none}
+.stage{width:min(420px,calc(100vw - 32px));padding:26px 24px 22px;background:linear-gradient(135deg,rgba(15,10,10,.92),rgba(8,8,10,.94));border:1px solid rgba(255,255,255,.06);border-left:3px solid #e10600;box-shadow:0 30px 80px rgba(0,0,0,.9)}
+.mark{font-weight:900;font-style:italic;font-size:46px;letter-spacing:3px;line-height:1;text-shadow:4px 4px 0 #e10600,8px 8px 18px rgba(225,6,0,.35);transform:skewX(-6deg);margin-left:-4px}
+.tag{font-size:10px;font-weight:700;letter-spacing:5px;color:#7a8590;margin-top:6px}
+.lights{display:flex;gap:10px;justify-content:center;margin:22px 0 20px}
+.light{width:26px;height:26px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#2a2a2a,#0a0a0a 70%);border:2px solid #1a1a1a;transition:all .3s}
+.light.on{background:radial-gradient(circle at 35% 30%,#ff3030,#e10600 55%,#7a0400);border-color:#ff4040;box-shadow:0 0 18px rgba(225,6,0,.9)}
+.light.go{background:radial-gradient(circle at 35% 30%,#7dff9e,#00e676 55%,#005a2c);border-color:#7dff9e;box-shadow:0 0 20px rgba(0,230,118,.9)}
+.status{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px}
+.status .main{font-size:17px;font-weight:900;font-style:italic;letter-spacing:3px;text-transform:uppercase;text-shadow:2px 2px 0 #e10600}
+.status .sub{font-family:'JetBrains Mono',monospace;font-size:10px;color:#7a8590}
+.bar{height:6px;background:rgba(255,255,255,.04);overflow:hidden;border-left:3px solid #e10600}
+.bar>div{height:100%;width:0%;background:linear-gradient(90deg,#e10600,#ff4000 40%,#ffb800);transition:width .3s}
+#hud{position:fixed;top:12px;left:12px;right:12px;display:flex;justify-content:space-between;z-index:100;pointer-events:none}
+#hud .pill{background:rgba(8,8,12,.75);border:1px solid rgba(255,255,255,.08);border-left:3px solid #e10600;padding:5px 11px;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:1px;color:#00e676;border-radius:3px}
+#hud .pill.fps{color:#ffb800;border-left-color:#ffb800}
+#menuBtn{position:fixed;bottom:18px;right:18px;width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,rgba(15,15,20,.95),rgba(8,8,12,.95));border:2px solid rgba(225,6,0,.5);color:#fff;font-size:20px;display:flex;align-items:center;justify-content:center;z-index:500;cursor:pointer;box-shadow:0 8px 30px rgba(0,0,0,.8),0 0 20px rgba(225,6,0,.3)}
+#menuBtn.open{background:linear-gradient(135deg,#e10600,#7a0400);border-color:#ff4040}
+#menuPanel{position:fixed;right:18px;bottom:82px;width:min(300px,calc(100vw - 36px));max-height:calc(100vh - 120px);overflow-y:auto;background:rgba(8,8,12,.96);border:1px solid rgba(255,255,255,.08);border-top:2px solid #e10600;border-radius:8px;backdrop-filter:blur(16px);box-shadow:0 30px 80px rgba(0,0,0,.9);z-index:499;padding:12px;transform:translateY(20px);opacity:0;pointer-events:none;transition:all .22s cubic-bezier(.34,1.4,.64,1)}
+#menuPanel.open{transform:translateY(0);opacity:1;pointer-events:auto}
+.section{font-size:9px;letter-spacing:3px;text-transform:uppercase;color:#7a8590;font-weight:700;margin:12px 0 8px;padding-bottom:4px;border-bottom:1px solid rgba(255,255,255,.06)}
+.section:first-child{margin-top:0}
+.row{display:flex;flex-wrap:wrap;gap:6px}
+#menuPanel button{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:#cfd6dd;font-family:inherit;font-size:11px;font-weight:700;letter-spacing:1px;padding:7px 9px;border-radius:4px;cursor:pointer;text-transform:uppercase;flex:1 1 auto;min-width:72px}
+#menuPanel button.on{background:rgba(0,230,118,.15);color:#00e676;border-color:rgba(0,230,118,.5)}
+#menuPanel button.time{flex:1 1 calc(33% - 4px);font-size:17px;padding:9px 4px}
+#menuPanel button.danger{background:rgba(225,6,0,.15);color:#ff5050;border-color:rgba(225,6,0,.4)}
+#menuPanel button.auto.on{background:rgba(225,6,0,.3);color:#fff;border-color:#ff4040}
+.hint{font-size:10px;color:#7a8590;margin-top:6px;line-height:1.5;font-family:'JetBrains Mono',monospace}
+#toast{position:fixed;bottom:82px;left:50%;transform:translateX(-50%);background:rgba(8,8,12,.9);border-left:3px solid #00e676;border-radius:3px;padding:7px 12px;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:#00e676;pointer-events:none;opacity:0;transition:opacity .25s;z-index:400;max-width:calc(100vw - 40px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#toast.show{opacity:1}
 </style>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.176.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.176.0/examples/jsm/"
+  }
+}
+</script>
 </head>
 <body>
 
-<!-- LOADER -->
 <div id="loader">
-  <div class="f1-stage">
-    <div class="f1-mark">CRICMAX</div>
-    <div class="f1-tag">STADIUMVIEW</div>
-    <div class="f1-lights">
-      <div class="f1-light"></div><div class="f1-light"></div>
-      <div class="f1-light"></div><div class="f1-light"></div>
-      <div class="f1-light"></div>
+  <div class="stage">
+    <div class="mark">CRICMAX</div>
+    <div class="tag">STADIUMVIEW</div>
+    <div class="lights">
+      <div class="light"></div><div class="light"></div>
+      <div class="light"></div><div class="light"></div><div class="light"></div>
     </div>
-    <div class="f1-status">
-      <div class="f1-status-main" id="loaderText">Loading</div>
-      <div class="f1-status-sub" id="loaderSub">0 / 0</div>
+    <div class="status">
+      <div class="main" id="loaderText">Loading</div>
+      <div class="sub" id="loaderSub">0 / 0</div>
     </div>
-    <div class="f1-bar"><div class="f1-bar-fill" id="f1BarFill"></div></div>
+    <div class="bar"><div id="barFill"></div></div>
   </div>
 </div>
 
-<!-- HUD -->
 <div id="hud">
-  <div class="pill" id="hudInfo">CRICMAX</div>
+  <div class="pill">CRICMAX</div>
   <div class="pill fps" id="fps">— FPS</div>
 </div>
 
-<!-- MENU BUTTON -->
 <div id="menuBtn">☰</div>
 
-<!-- MENU PANEL -->
 <div id="menuPanel">
-  <div class="section">Camera Views</div>
-  <div class="btn-row" id="viewRow"></div>
-
+  <div class="section">Camera</div>
+  <div class="row" id="viewRow"></div>
   <div class="section">Lighting</div>
-  <div class="btn-row" id="timeRow">
+  <div class="row" id="timeRow">
     <button class="time" data-time="day">☀️</button>
     <button class="time" data-time="sunset">🌇</button>
     <button class="time" data-time="night">🌙</button>
   </div>
-
   <div class="section">Actions</div>
-  <div class="btn-row">
+  <div class="row">
     <button id="btn-auto" class="auto">▶ Director</button>
     <button id="btn-reset" class="danger">↺ Reset</button>
   </div>
-
   <div class="section">Player</div>
-  <div class="hint">
-    Tap a role · Shift+Tap on field to move<br>
-    Desktop: Tab = cycle · WASD = move · Esc = reset
-  </div>
-  <div class="btn-row" id="playerRow"></div>
+  <div class="hint">Tap role · Shift+Tap field to move<br>Desktop: Tab · WASD · Esc</div>
+  <div class="row" id="playerRow"></div>
 </div>
 
-<!-- THREE.JS -->
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/DRACOLoader.js"></script>
+<div id="toast"></div>
 
-<!-- APP SCRIPTS -->
-<script src="stadium.js"></script>
-<script src="controls.js"></script>
-<script src="anim.js"></script>
-<script src="players.js"></script>
+<script type="module">
+  // ═══════════════════════════════════════════════════════
+  //  Load three.js r176 + addons, expose to window,
+  //  THEN dynamically load the app scripts.
+  // ═══════════════════════════════════════════════════════
+  import * as THREE from 'three';
+  import { GLTFLoader }    from 'three/addons/loaders/GLTFLoader.js';
+  import { DRACOLoader }   from 'three/addons/loaders/DRACOLoader.js';
+  import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 
-<!-- F1 LOADER WIRING -->
-<script>
-(function(){
-  'use strict';
-  const loaderEl = document.getElementById('loader');
-  const subEl    = document.getElementById('loaderSub');
-  const textEl   = document.getElementById('loaderText');
-  const barEl    = document.getElementById('f1BarFill');
-  const lights   = Array.from(document.querySelectorAll('.f1-light'));
-  if (!subEl || !barEl) return;
+  // Create a mutable copy of THREE namespace and attach loaders
+  const THREE_NS = { ...THREE };
+  THREE_NS.GLTFLoader    = GLTFLoader;
+  THREE_NS.DRACOLoader   = DRACOLoader;
+  THREE_NS.SkeletonUtils = SkeletonUtils;
+  window.THREE = THREE_NS;
 
-  let finished = false;
-  function update(){
-    if (finished) return;
-    const m = (subEl.textContent || '').match(/(\d+)\s*\/\s*(\d+)/);
-    if (!m) return;
-    const n = parseInt(m[1],10), t = parseInt(m[2],10);
-    const pct = t ? n / t : 0;
-    barEl.style.width = Math.round(pct * 100) + '%';
-    const lit = Math.floor(pct * 5);
-    lights.forEach(function(el, i){ el.classList.toggle('on', !finished && i < lit); });
-    if (textEl && /ready/i.test(textEl.textContent) && !finished){
-      finished = true;
-      barEl.style.width = '100%';
-      lights.forEach(function(el){ el.classList.remove('on'); el.classList.add('go'); });
-      setTimeout(function(){ if (loaderEl) loaderEl.classList.add('hide'); }, 800);
-    }
+  console.log('[three] r' + THREE.REVISION + ' ready');
+
+  // Load app scripts in order (they read window.THREE)
+  function loadScript(src){
+    return new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = src;
+      s.onload = resolve;
+      s.onerror = () => reject(new Error('Failed: ' + src));
+      document.head.appendChild(s);
+    });
   }
-  setInterval(update, 200);
-  new MutationObserver(update).observe(subEl, { childList:true, characterData:true, subtree:true });
-})();
-</script>
 
-<!-- MENU WIRING -->
-<script>
-(function(){
-  'use strict';
+  try {
+    await loadScript('stadium.js');
+    await loadScript('controls.js');
+    await loadScript('players.js');
+    console.log('[boot] app scripts loaded');
+  } catch(e){
+    console.error('[boot]', e);
+  }
 
-  const btn   = document.getElementById('menuBtn');
-  const panel = document.getElementById('menuPanel');
-  if (!btn || !panel) return;
+  // ─── Menu + loader wiring (runs after scripts are attached) ──
+  (function menuWiring(){
+    const subEl = document.getElementById('loaderSub');
+    const textEl = document.getElementById('loaderText');
+    const barEl = document.getElementById('barFill');
+    const lights = document.querySelectorAll('.light');
+    let done = false;
+    function updateLoader(){
+      if (done) return;
+      const m = (subEl.textContent || '').match(/(\d+)\s*\/\s*(\d+)/);
+      if (!m) return;
+      const n = parseInt(m[1],10), t = parseInt(m[2],10);
+      const pct = t ? n/t : 0;
+      barEl.style.width = Math.round(pct*100) + '%';
+      const lit = Math.floor(pct*5);
+      lights.forEach((el,i) => el.classList.toggle('on', i<lit));
+      if (textEl && /ready/i.test(textEl.textContent) && !done){
+        done = true;
+        barEl.style.width = '100%';
+        lights.forEach(el => { el.classList.remove('on'); el.classList.add('go'); });
+        setTimeout(() => document.getElementById('loader').classList.add('hide'), 700);
+      }
+    }
+    setInterval(updateLoader, 200);
 
-  function closeMenu(){ panel.classList.remove('open'); btn.classList.remove('open'); }
-  function toggleMenu(){ panel.classList.toggle('open'); btn.classList.toggle('open', panel.classList.contains('open')); }
+    window.showToast = function(msg){
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(el._t);
+      el._t = setTimeout(() => el.classList.remove('show'), 1500);
+    };
 
-  btn.addEventListener('click', function(e){ e.stopPropagation(); toggleMenu(); });
+    const btn = document.getElementById('menuBtn');
+    const panel = document.getElementById('menuPanel');
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const open = panel.classList.toggle('open');
+      btn.classList.toggle('open', open);
+    });
+    document.addEventListener('pointerdown', e => {
+      if (!panel.classList.contains('open')) return;
+      if (panel.contains(e.target) || btn.contains(e.target)) return;
+      panel.classList.remove('open');
+      btn.classList.remove('open');
+    });
 
-  document.addEventListener('pointerdown', function(e){
-    if (!panel.classList.contains('open')) return;
-    if (panel.contains(e.target) || btn.contains(e.target)) return;
-    closeMenu();
-  });
-
-  // ─── View buttons — ALL 14 ─────────────────────────────
-  const viewRow = document.getElementById('viewRow');
-  if (viewRow && viewRow.dataset.filled !== '1'){
-    viewRow.dataset.filled = '1';
-    viewRow.innerHTML = '';
-    const VIEWS = [
-      'overview','tv','tvlong','tvhigh',
-      'bowler','batsman','batting',
-      'closeup','stumps','sideOn','pitch',
-      'aerial','spider','drone'
-    ];
-    VIEWS.forEach(function(k){
+    const viewRow = document.getElementById('viewRow');
+    const VIEWS = ['overview','tv','tvlong','tvhigh','bowler','batsman',
+                   'closeup','stumps','sideOn','pitch','aerial','spider','drone'];
+    VIEWS.forEach(k => {
       const b = document.createElement('button');
-      b.setAttribute('data-view', k);
+      b.dataset.view = k;
       b.textContent = k.charAt(0).toUpperCase() + k.slice(1);
-      b.addEventListener('click', function(ev){
-        ev.preventDefault(); ev.stopPropagation();
-        if (typeof window.__applyView === 'function'){
-          window.__applyView(k);
-          viewRow.querySelectorAll('button').forEach(function(x){
-            x.classList.toggle('on', x === b);
-          });
-        } else {
-          console.warn('[Menu] camera API not ready');
-        }
+      b.addEventListener('click', e => {
+        e.preventDefault(); e.stopPropagation();
+        if (typeof window.__applyView === 'function') window.__applyView(k);
+        viewRow.querySelectorAll('button').forEach(x => x.classList.toggle('on', x===b));
       });
       viewRow.appendChild(b);
     });
-  }
 
-  // ─── Time buttons ──────────────────────────────────────
-  const timeRow = document.getElementById('timeRow');
-  if (timeRow){
-    timeRow.querySelectorAll('button').forEach(function(b){
-      b.addEventListener('click', function(ev){
-        ev.preventDefault(); ev.stopPropagation();
-        const mode = b.getAttribute('data-time');
-        if (typeof window.__setTime === 'function'){
-          window.__setTime(mode);
-          timeRow.querySelectorAll('button').forEach(function(x){
-            x.classList.toggle('on', x === b);
-          });
-        }
+    const timeRow = document.getElementById('timeRow');
+    timeRow.querySelectorAll('button').forEach(b => {
+      b.addEventListener('click', e => {
+        e.preventDefault(); e.stopPropagation();
+        if (typeof window.__setTime === 'function') window.__setTime(b.dataset.time);
+        timeRow.querySelectorAll('button').forEach(x => x.classList.toggle('on', x===b));
       });
     });
-  }
 
-  // ─── Director ──────────────────────────────────────────
-  const autoBtn  = document.getElementById('btn-auto');
-  const resetBtn = document.getElementById('btn-reset');
-  let directorTimer = null;
-  let directorIdx   = 0;
-  const DIRECTOR_ORDER = ['tv','bowler','closeup','sideOn','batsman','stumps','tvlong','overview','aerial'];
-
-  function stepDirector(){
-    if (!autoBtn.classList.contains('on')) return;
-    const name = DIRECTOR_ORDER[directorIdx % DIRECTOR_ORDER.length];
-    directorIdx++;
-    if (typeof window.__applyView === 'function') window.__applyView(name);
-    directorTimer = setTimeout(stepDirector, 5000);
-  }
-
-  if (autoBtn){
-    autoBtn.addEventListener('click', function(ev){
-      ev.preventDefault(); ev.stopPropagation();
+    const autoBtn = document.getElementById('btn-auto');
+    const resetBtn = document.getElementById('btn-reset');
+    const ORDER = ['tv','bowler','closeup','sideOn','batsman','stumps','tvlong','overview'];
+    let timer = null, idx = 0;
+    function step(){
+      if (!autoBtn.classList.contains('on')) return;
+      const name = ORDER[idx % ORDER.length]; idx++;
+      if (typeof window.__applyView === 'function') window.__applyView(name);
+      viewRow.querySelectorAll('button').forEach(x => x.classList.toggle('on', x.dataset.view===name));
+      timer = setTimeout(step, 5000);
+    }
+    autoBtn.addEventListener('click', e => {
+      e.preventDefault(); e.stopPropagation();
       const on = autoBtn.classList.toggle('on');
       autoBtn.textContent = on ? '⏸ Director' : '▶ Director';
-      if (on){
-        directorIdx = 0;
-        stepDirector();
-      } else if (directorTimer){
-        clearTimeout(directorTimer);
-        directorTimer = null;
-      }
+      if (on){ idx = 0; step(); }
+      else { clearTimeout(timer); timer = null; }
     });
-  }
-
-  if (resetBtn){
-    resetBtn.addEventListener('click', function(ev){
-      ev.preventDefault(); ev.stopPropagation();
+    resetBtn.addEventListener('click', e => {
+      e.preventDefault(); e.stopPropagation();
       if (window.PlayerControl) window.PlayerControl.resetAll();
-      closeMenu();
+      panel.classList.remove('open');
+      btn.classList.remove('open');
     });
-  }
 
-  // ─── Player buttons — safe polling ─────────────────────
-  const waitPlayers = setInterval(function(){
-    if (!window.PlayerControl) return;
-    const roles = window.PlayerControl.roles;
-    if (!roles || !roles.forEach) return;   // guard against partial init
-
-    clearInterval(waitPlayers);
-
-    const row = document.getElementById('playerRow');
-    if (!row || row.dataset.filled === '1') return;
-    row.dataset.filled = '1';
-    row.innerHTML = '';
-
-    roles.forEach(function(role){
-      const b = document.createElement('button');
-      b.textContent = role.length > 10 ? role.slice(0, 9) + '…' : role;
-      b.title = role;
-      b.addEventListener('click', function(ev){
-        ev.preventDefault(); ev.stopPropagation();
-        window.PlayerControl.select(role);
-        row.querySelectorAll('button').forEach(function(x){ x.classList.remove('on'); });
-        b.classList.add('on');
+    const playerRow = document.getElementById('playerRow');
+    const waitP = setInterval(() => {
+      if (!window.PlayerControl || !window.PlayerControl.roles) return;
+      clearInterval(waitP);
+      window.PlayerControl.roles.forEach(role => {
+        const b = document.createElement('button');
+        b.textContent = role.length > 10 ? role.slice(0,9)+'…' : role;
+        b.title = role;
+        b.addEventListener('click', e => {
+          e.preventDefault(); e.stopPropagation();
+          window.PlayerControl.select(role);
+          playerRow.querySelectorAll('button').forEach(x => x.classList.remove('on'));
+          b.classList.add('on');
+        });
+        playerRow.appendChild(b);
       });
-      row.appendChild(b);
-    });
-    if (row.firstChild) row.firstChild.classList.add('on');
-  }, 250);
+      if (playerRow.firstChild) playerRow.firstChild.classList.add('on');
+    }, 200);
 
-  // ─── Shift+Tap to move selected player ─────────────────
-  function waitCanvas(){
-    const canvas = document.querySelector('canvas');
-    if (!canvas){ setTimeout(waitCanvas, 200); return; }
-    canvas.addEventListener('pointerup', function(e){
-      if (!e.shiftKey) return;
-      if (!window.PlayerControl || !window.StadiumView) return;
-      const SV = window.StadiumView;
-      const raycaster = new THREE.Raycaster();
-      const mouse = new THREE.Vector2(
-        (e.clientX / window.innerWidth) * 2 - 1,
-        -(e.clientY / window.innerHeight) * 2 + 1
-      );
-      raycaster.setFromCamera(mouse, SV.camera);
-      const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -(SV.fieldY || 7.19));
-      const hit = new THREE.Vector3();
-      if (raycaster.ray.intersectPlane(plane, hit)){
-        const role = window.PlayerControl.selected();
-        window.PlayerControl.moveTo(role, hit.x, hit.z, null, 900);
-        if (window.showToast) window.showToast(role + ' → ' + hit.x.toFixed(1) + ',' + hit.z.toFixed(1));
-      }
-    });
-  }
-  waitCanvas();
-
-  console.log('[Menu] ✅ ready · views=' +
-              (viewRow ? viewRow.querySelectorAll('button').length : 0));
-})();
+    console.log('[menu] ready');
+  })();
 </script>
-
 </body>
 </html>
