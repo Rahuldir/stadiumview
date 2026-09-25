@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#050a12">
+<title>StadiumView</title>
+<link rel="icon" href="/favicon.ico">
+<link rel="preconnect" href="https://cdnjs.cloudflare.com">
+<link rel="preconnect" href="https://cdn.jsdelivr.net">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div id="loader">
+  <div class="spinner"></div>
+  <div class="loader-text" id="loaderText">Loading stadium…</div>
+  <div class="loader-sub" id="loaderSub">0%</div>
+</div>
+
+<div id="hud">
+  <div class="hud-title">STADIUMVIEW</div>
+  <div class="hud-hint">Drag to orbit · scroll to zoom</div>
+  <div class="model-list" id="modelList"></div>
+</div>
+
+<div id="fps">-- FPS</div>
+
+<div id="controls">
+  <button data-view="overview" class="on">Overview</button>
+  <button data-view="pitch">Pitch</button>
+  <button data-view="batting">Batting End</button>
+  <button data-view="aerial">Aerial</button>
+  <span class="divider"></span>
+  <button data-time="day" class="on">☀️</button>
+  <button data-time="sunset">🌇</button>
+  <button data-time="night">🌙</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="stadium.js"></script>
+<script src="controls.js"></script>
+
+</body>
+</html>
