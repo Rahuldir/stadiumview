@@ -17,15 +17,11 @@
     font-family: 'Titillium Web', Arial, sans-serif;
     color: #fff;
     -webkit-font-smoothing: antialiased;
-    touch-action: none;
-    user-select: none;
-    -webkit-user-select: none;
+    touch-action: none; user-select: none; -webkit-user-select: none;
   }
   canvas { display: block; }
 
-  /* ═══════════════════════════════════════════════════════════
-     F1 LOADER
-     ═══════════════════════════════════════════════════════════ */
+  /* F1 LOADER */
   #loader {
     position: fixed; inset: 0; z-index: 9999;
     display: flex; align-items: center; justify-content: center;
@@ -140,9 +136,7 @@
   .f1-tel-v.ok { color: #00e676; }
   .f1-tel-v.warn { color: #ffb800; }
 
-  /* ═══════════════════════════════════════════════════════════
-     HUD (top bar, tiny)
-     ═══════════════════════════════════════════════════════════ */
+  /* HUD (top bar) */
   #hud {
     position: fixed; top: 12px; left: 12px; right: 12px;
     display: flex; justify-content: space-between; align-items: flex-start;
@@ -163,9 +157,7 @@
   #hud .pill.fps { color: #ffb800; border-left-color: #ffb800; }
   #hud .pill.fps.low { color: #ef4444; border-left-color: #ef4444; }
 
-  /* ═══════════════════════════════════════════════════════════
-     SINGLE MENU BUTTON
-     ═══════════════════════════════════════════════════════════ */
+  /* Single menu button */
   #menuBtn {
     position: fixed; bottom: 20px; right: 20px;
     width: 56px; height: 56px; border-radius: 50%;
@@ -184,9 +176,7 @@
     box-shadow: 0 8px 30px rgba(0,0,0,.8), 0 0 30px rgba(225,6,0,.7);
   }
 
-  /* ═══════════════════════════════════════════════════════════
-     MENU PANEL
-     ═══════════════════════════════════════════════════════════ */
+  /* Menu panel */
   #menuPanel {
     position: fixed; right: 20px; bottom: 90px;
     width: min(320px, calc(100vw - 40px));
@@ -204,7 +194,6 @@
     transition: all .22s cubic-bezier(.34,1.4,.64,1);
   }
   #menuPanel.open { transform: translateY(0) scale(1); opacity: 1; pointer-events: auto; }
-
   #menuPanel .section {
     font-size: 9px; letter-spacing: 3px; text-transform: uppercase;
     color: #7a8590; font-weight: 700;
@@ -229,23 +218,14 @@
     border-color: rgba(0,230,118,.5);
     box-shadow: 0 0 12px rgba(0,230,118,.35);
   }
-  #menuPanel button.time {
-    flex: 1 1 calc(33% - 4px);
-    font-size: 18px; padding: 10px 4px;
-  }
-  #menuPanel button.danger {
-    background: rgba(225,6,0,.15); color: #ff5050;
-    border-color: rgba(225,6,0,.4);
-  }
+  #menuPanel button.time { flex: 1 1 calc(33% - 4px); font-size: 18px; padding: 10px 4px; }
+  #menuPanel button.danger { background: rgba(225,6,0,.15); color: #ff5050; border-color: rgba(225,6,0,.4); }
   #menuPanel .hint {
     font-size: 10px; color: #7a8590;
     margin-top: 8px; line-height: 1.5;
     font-family: 'JetBrains Mono', monospace;
   }
 
-  /* ═══════════════════════════════════════════════════════════
-     TOAST (bottom-center, brief messages)
-     ═══════════════════════════════════════════════════════════ */
   #pc-toast {
     position: fixed; bottom: 92px; left: 50%;
     transform: translateX(-50%);
@@ -264,9 +244,6 @@
   }
   #pc-toast.show { opacity: 1; }
 
-  /* ═══════════════════════════════════════════════════════════
-     MOBILE TWEAKS
-     ═══════════════════════════════════════════════════════════ */
   @media (max-width: 640px) {
     .f1-stage { padding: 24px 20px 20px; }
     .f1-mark { font-size: 42px; text-shadow: 3px 3px 0 #e10600, 6px 6px 14px rgba(225,6,0,.35); }
@@ -286,9 +263,7 @@
 </head>
 <body>
 
-<!-- ═══════════════════════════════════════════════════════════
-     F1-STYLE LOADER
-     ═══════════════════════════════════════════════════════════ -->
+<!-- LOADER -->
 <div id="loader">
   <div class="f1-stage">
     <div class="f1-top">
@@ -302,7 +277,6 @@
         <div class="f1-meta-row"><span>Feed</span><b class="live">LIVE</b></div>
       </div>
     </div>
-
     <div class="f1-lights">
       <div class="f1-light"></div>
       <div class="f1-light"></div>
@@ -310,14 +284,11 @@
       <div class="f1-light"></div>
       <div class="f1-light"></div>
     </div>
-
     <div class="f1-status">
       <div class="f1-status-main" id="loaderText">Loading</div>
       <div class="f1-status-sub" id="loaderSub">0 / 0</div>
     </div>
-
     <div class="f1-bar"><div class="f1-bar-fill" id="f1BarFill"></div></div>
-
     <div class="f1-telemetry">
       <div class="f1-tel"><div class="f1-tel-l">Progress</div><div class="f1-tel-v" id="f1Pct">0%</div></div>
       <div class="f1-tel"><div class="f1-tel-l">Loaded</div><div class="f1-tel-v" id="f1Count">0 / 0</div></div>
@@ -327,19 +298,14 @@
   </div>
 </div>
 
-<!-- ═══════════════════════════════════════════════════════════
-     HUD (top)
-     ═══════════════════════════════════════════════════════════ -->
+<!-- HUD -->
 <div id="hud">
   <div class="pill" id="hudInfo">CRICMAX</div>
   <div class="pill fps" id="fps">— FPS</div>
 </div>
 
-<!-- ═══════════════════════════════════════════════════════════
-     MENU BUTTON + PANEL
-     ═══════════════════════════════════════════════════════════ -->
+<!-- MENU -->
 <div id="menuBtn">☰</div>
-
 <div id="menuPanel">
   <div class="section">Camera Views</div>
   <div class="btn-row" id="viewRow"></div>
@@ -359,31 +325,24 @@
 
   <div class="section">Player</div>
   <div class="hint">
-    Tap a role to select · drag on the field to move<br>
+    Tap a role to select · Shift+Tap on field to move<br>
     Desktop: Tab = cycle · WASD = move · Esc = reset
   </div>
   <div class="btn-row" id="playerRow"></div>
 </div>
 
-<!-- ═══════════════════════════════════════════════════════════
-     THREE.JS — one copy each
-     ═══════════════════════════════════════════════════════════ -->
+<!-- THREE.JS -->
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/DRACOLoader.js"></script>
 
-<!-- ═══════════════════════════════════════════════════════════
-     APP SCRIPTS — order matters
-     ═══════════════════════════════════════════════════════════ -->
-<script src="mobile.js"></script>
+<!-- APP -->
 <script src="stadium.js"></script>
 <script src="controls.js"></script>
 <script src="anim.js"></script>
 <script src="players.js"></script>
 
-<!-- ═══════════════════════════════════════════════════════════
-     F1 LOADER WIRING
-     ═══════════════════════════════════════════════════════════ -->
+<!-- F1 LOADER WIRING -->
 <script>
 (function(){
   'use strict';
@@ -400,10 +359,7 @@
 
   if (!subEl || !barEl) return;
 
-  let lastCount = 0;
-  let lastTime  = performance.now();
-  let speedVal  = 0;
-  let finished  = false;
+  let lastCount = 0, lastTime = performance.now(), speedVal = 0, finished = false;
 
   function parseProgress(){
     const m = (subEl.textContent || '').match(/(\d+)\s*\/\s*(\d+)/);
@@ -413,40 +369,17 @@
     return { done, total, pct: total ? done / total : 0 };
   }
 
-  function updateLights(pct){
-    const litCount = pct >= 1 ? 5 : Math.floor(pct * 5);
-    lights.forEach(function(el, i){
-      el.classList.toggle('on', !finished && i < litCount);
-    });
-  }
-
-  function allGo(){
-    lights.forEach(function(el){
-      el.classList.remove('on');
-      el.classList.add('go');
-    });
-  }
-
   function update(){
     if (finished) return;
-
     const p = parseProgress();
-    const pctText = Math.round(p.pct * 100);
-
-    barEl.style.width = pctText + '%';
-    pctEl.textContent = pctText + '%';
+    const pct = Math.round(p.pct * 100);
+    barEl.style.width = pct + '%';
+    pctEl.textContent = pct + '%';
     countEl.textContent = p.done + ' / ' + p.total;
 
-    if (p.total === 0){
-      statusEl.textContent = 'INIT';
-      statusEl.className = 'f1-tel-v warn';
-    } else if (p.pct >= 1){
-      statusEl.textContent = 'READY';
-      statusEl.className = 'f1-tel-v ok';
-    } else {
-      statusEl.textContent = 'LOADING';
-      statusEl.className = 'f1-tel-v warn';
-    }
+    if (p.total === 0){ statusEl.textContent = 'INIT'; statusEl.className = 'f1-tel-v warn'; }
+    else if (p.pct >= 1){ statusEl.textContent = 'READY'; statusEl.className = 'f1-tel-v ok'; }
+    else { statusEl.textContent = 'LOADING'; statusEl.className = 'f1-tel-v warn'; }
 
     const now = performance.now();
     const dt = (now - lastTime) / 1000;
@@ -458,7 +391,8 @@
       speedEl.textContent = speedVal.toFixed(1) + ' m/s';
     }
 
-    updateLights(p.pct);
+    const lit = Math.floor(p.pct * 5);
+    lights.forEach(function(el, i){ el.classList.toggle('on', !finished && i < lit); });
 
     if (textEl && /ready/i.test(textEl.textContent)) finish();
   }
@@ -466,16 +400,12 @@
   function finish(){
     if (finished) return;
     finished = true;
-
     barEl.style.width = '100%';
     pctEl.textContent = '100%';
     statusEl.textContent = 'READY';
     statusEl.className = 'f1-tel-v ok';
-    allGo();
-
-    setTimeout(function(){
-      if (loaderEl) loaderEl.classList.add('hide');
-    }, 800);
+    lights.forEach(function(el){ el.classList.remove('on'); el.classList.add('go'); });
+    setTimeout(function(){ if (loaderEl) loaderEl.classList.add('hide'); }, 800);
   }
 
   const mo = new MutationObserver(update);
@@ -487,9 +417,7 @@
 })();
 </script>
 
-<!-- ═══════════════════════════════════════════════════════════
-     MENU WIRING
-     ═══════════════════════════════════════════════════════════ -->
+<!-- MENU WIRING -->
 <script>
 (function(){
   'use strict';
@@ -498,19 +426,10 @@
   const panel = document.getElementById('menuPanel');
   if (!btn || !panel) return;
 
-  function closeMenu(){
-    panel.classList.remove('open');
-    btn.classList.remove('open');
-  }
-  function toggleMenu(){
-    panel.classList.toggle('open');
-    btn.classList.toggle('open', panel.classList.contains('open'));
-  }
+  function closeMenu(){ panel.classList.remove('open'); btn.classList.remove('open'); }
+  function toggleMenu(){ panel.classList.toggle('open'); btn.classList.toggle('open', panel.classList.contains('open')); }
 
-  btn.addEventListener('click', function(e){
-    e.stopPropagation();
-    toggleMenu();
-  });
+  btn.addEventListener('click', function(e){ e.stopPropagation(); toggleMenu(); });
   panel.addEventListener('click', function(e){ e.stopPropagation(); });
   document.addEventListener('pointerdown', function(e){
     if (!panel.classList.contains('open')) return;
@@ -518,10 +437,10 @@
     closeMenu();
   });
 
-  // ─── Populate View buttons ──────────────────────────────
+  // Populate view buttons
   const viewRow = document.getElementById('viewRow');
+  const VIEWS = ['overview','tv','bowler','batsman','closeup','stumps','aerial','sideOn'];
   if (viewRow){
-    const VIEWS = ['overview','tv','bowler','batsman','closeup','stumps','aerial','sideOn'];
     VIEWS.forEach(function(k){
       const b = document.createElement('button');
       b.setAttribute('data-view', k);
@@ -530,56 +449,43 @@
     });
   }
 
-  // ─── Wire view buttons (delegated so it survives re-injection) ──
   document.addEventListener('click', function(e){
     const b = e.target.closest('#viewRow button');
     if (!b) return;
-    const name = b.getAttribute('data-view');
-    document.querySelectorAll('#viewRow button').forEach(function(x){
-      x.classList.toggle('on', x === b);
-    });
-    if (window.__applyView) window.__applyView(name);
+    document.querySelectorAll('#viewRow button').forEach(function(x){ x.classList.toggle('on', x === b); });
+    if (window.__applyView) window.__applyView(b.getAttribute('data-view'));
   });
 
-  // ─── Time buttons ───────────────────────────────────────
   document.addEventListener('click', function(e){
     const b = e.target.closest('#timeRow button');
     if (!b) return;
-    const mode = b.getAttribute('data-time');
-    document.querySelectorAll('#timeRow button').forEach(function(x){
-      x.classList.toggle('on', x === b);
-    });
-    if (window.__setTime) window.__setTime(mode);
+    document.querySelectorAll('#timeRow button').forEach(function(x){ x.classList.toggle('on', x === b); });
+    if (window.__setTime) window.__setTime(b.getAttribute('data-time'));
   });
 
-  // ─── Populate player row after PlayerControl loads ──────
+  // Player row population
   const waitPlayers = setInterval(function(){
     if (!window.PlayerControl) return;
     clearInterval(waitPlayers);
-
-    const playerRow = document.getElementById('playerRow');
-    if (!playerRow) return;
-    playerRow.innerHTML = '';
-
-    const roles = window.PlayerControl.roles;
-    roles.forEach(function(role){
+    const row = document.getElementById('playerRow');
+    if (!row) return;
+    row.innerHTML = '';
+    window.PlayerControl.roles.forEach(function(role){
       const b = document.createElement('button');
       b.textContent = role.length > 10 ? role.slice(0, 9) + '…' : role;
       b.title = role;
       b.addEventListener('click', function(){
         window.PlayerControl.select(role);
-        playerRow.querySelectorAll('button').forEach(function(x){ x.classList.remove('on'); });
+        row.querySelectorAll('button').forEach(function(x){ x.classList.remove('on'); });
         b.classList.add('on');
       });
-      playerRow.appendChild(b);
+      row.appendChild(b);
     });
-
-    // Mark first as selected
-    if (playerRow.firstChild) playerRow.firstChild.classList.add('on');
+    if (row.firstChild) row.firstChild.classList.add('on');
   }, 250);
 
-  // ─── Auto Director + Reset ──────────────────────────────
-  const autoBtn = document.getElementById('btn-auto');
+  // Auto Director + Reset
+  const autoBtn  = document.getElementById('btn-auto');
   const resetBtn = document.getElementById('btn-reset');
 
   if (autoBtn){
@@ -591,16 +497,16 @@
       if (on){
         (function next(){
           if (!autoBtn.classList.contains('on')) return;
-          if (window.__applyView) window.__applyView(order[idx % order.length]);
+          const name = order[idx % order.length];
+          if (window.__applyView) window.__applyView(name);
           document.querySelectorAll('#viewRow button').forEach(function(x){
-            x.classList.toggle('on', x.getAttribute('data-view') === order[idx % order.length]);
+            x.classList.toggle('on', x.getAttribute('data-view') === name);
           });
           idx++;
           timer = setTimeout(next, 5000);
         })();
       } else if (timer){
-        clearTimeout(timer);
-        timer = null;
+        clearTimeout(timer); timer = null;
       }
     });
   }
@@ -612,22 +518,13 @@
     });
   }
 
-  // ─── Drag on canvas → move selected player ──────────────
-  // (Simple: raycast to grass plane, teleport selected player)
-  const canvas = document.querySelector('canvas');
-  if (canvas && window.THREE){
-    let dragTimer = null;
-    canvas.addEventListener('pointerdown', function(e){
-      if (!window.PlayerControl || !window.StadiumView) return;
-      // Only if user tapped in bottom half — avoids conflicting with camera drag
-      // Actually let camera drag work; we hook Shift+Tap
-      if (!e.shiftKey) return;
-      dragTimer = performance.now();
-    });
+  // Shift+Tap on canvas to move selected player
+  function waitCanvas(){
+    const canvas = document.querySelector('canvas');
+    if (!canvas){ setTimeout(waitCanvas, 200); return; }
     canvas.addEventListener('pointerup', function(e){
-      if (!dragTimer) return;
-      dragTimer = null;
       if (!e.shiftKey) return;
+      if (!window.PlayerControl || !window.StadiumView) return;
       const SV = window.StadiumView;
       const raycaster = new THREE.Raycaster();
       const mouse = new THREE.Vector2(
@@ -640,12 +537,13 @@
       if (raycaster.ray.intersectPlane(plane, hit)){
         const role = window.PlayerControl.selected();
         window.PlayerControl.moveTo(role, hit.x, hit.z, null, 900);
-        showToast(role + ' → x=' + hit.x.toFixed(1) + ' z=' + hit.z.toFixed(1));
+        if (window.showToast) window.showToast(role + ' → x=' + hit.x.toFixed(1) + ' z=' + hit.z.toFixed(1));
       }
     });
   }
+  waitCanvas();
 
-  // ─── Toast helper (used by menu + players.js) ───────────
+  // Toast helper
   function showToast(msg){
     let el = document.getElementById('pc-toast');
     if (!el){
