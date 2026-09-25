@@ -1,24 +1,14 @@
 /* ══════════════════════════════════════════════════════════════
-   StadiumView — Full Procedural Kinematics & Body Part Mapping
-   • Arms-down via world-space bone pointing (rig-agnostic)
-   • All 9 action tables:
-       1. Head & neck articulation
-       2. Torso & core dynamics
-       3. Arm articulation (running)
-       4. Leg & foot articulation (running)
-       5. Cricket actions: bowling, batting, catching
-       6. Batting footwork: drive, punch, duck, leave
-       7. Fielding: throw windup, keeper dive, stumping
-       8. Umpire signals: out, six, four, wide, no-ball, dead ball
-       9. Ambient micro-animations: helmet, shine, stretch,
-          disappointment, celebration
-   • Mobile: bones updated every 3rd frame
+   StadiumView — Full Procedural Kinematics + Hand Attachment
+   • Bat and ball are attached to actual hand bones → follow arms
+   • All 9 action tables from the kinematic spec
+   • Bowler's ball auto-hides during delivery
    • Public API: PlayerControl.play(role, action)
    ══════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
 
-  console.log('%c[players.js] IIFE started — full kinematics v3.0', 'color:#00e676;font-weight:bold');
+  console.log('%c[players.js] IIFE started — kinematics v4.0 (hand attach)', 'color:#00e676;font-weight:bold');
 
   const IS_MOBILE_PLAYERS = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
   const BONE_EVERY = IS_MOBILE_PLAYERS ? 3 : 1;
@@ -81,7 +71,6 @@
     if (/spine2|spine_02|chest|spine1$/.test(n)) return 'chest';
     if (/spine/.test(n)) return 'spine';
     if (/neck/.test(n)) return 'neck';
-    // Relaxed head detection
     if (/head/.test(n) && !/headwear|forehead|overhead/.test(n) && !/shoulder/.test(n)) return 'head';
 
     if (/shoulder|clavicle/.test(n)) return L ? 'lShoulder' : R ? 'rShoulder' : null;
@@ -100,12 +89,8 @@
     if (/^leg$|leg_l|leg_r|leg\.l|leg\.r|_leg$/.test(n) && !/lower|calf|shin/.test(n)){
       return L ? 'lThigh' : R ? 'rThigh' : null;
     }
-    if (/knee|calf|shin|lowerleg|lower_leg/.test(n)){
-      return L ? 'lShin' : R ? 'rShin' : null;
-    }
-    if (/foot|ankle/.test(n) && !/toe/.test(n)){
-      return L ? 'lFoot' : R ? 'rFoot' : null;
-    }
+    if (/knee|calf|shin|lowerleg|lower_leg/.test(n)) return L ? 'lShin' : R ? 'rShin' : null;
+    if (/foot|ankle/.test(n) && !/toe/.test(n))     return L ? 'lFoot' : R ? 'rFoot' : null;
     return null;
   }
 
@@ -148,7 +133,6 @@
       return null;
     }
 
-    // Hips fallback
     if (!slots.hips && bones.length){
       let best = null, bestDepth = -1;
       bones.forEach(function(b){
@@ -159,8 +143,6 @@
       });
       slots.hips = best || bones[0];
     }
-
-    // Spine / chest
     if (!slots.spine && slots.hips){
       slots.hips.children.forEach(function(c){
         if ((c.isBone || c.type === 'Bone') && !slots.spine) slots.spine = c;
@@ -174,8 +156,6 @@
       });
       if (!slots.chest) slots.chest = slots.spine;
     }
-
-    // Neck / head
     if (!slots.neck && slots.chest){
       slots.chest.children.forEach(function(c){
         if ((c.isBone || c.type === 'Bone') && !slots.neck && /neck/i.test(c.name || '')) slots.neck = c;
@@ -186,14 +166,8 @@
         if (/head/i.test(bones[i].name || '')){ slots.head = bones[i]; break; }
       }
     }
-    if (!slots.head && slots.neck){
-      slots.neck.children.forEach(function(c){
-        if ((c.isBone || c.type === 'Bone') && !slots.head) slots.head = c;
-      });
-    }
     if (!slots.head && slots.neck) slots.head = childOf(slots.neck);
 
-    // Arm chain recovery
     if (!slots.lUpperArm && slots.lForeArm) slots.lUpperArm = parentOf(slots.lForeArm);
     if (!slots.rUpperArm && slots.rForeArm) slots.rUpperArm = parentOf(slots.rForeArm);
     if (!slots.lForeArm && slots.lHand)      slots.lForeArm = parentOf(slots.lHand);
@@ -203,7 +177,6 @@
     if (!slots.lHand && slots.lForeArm)      slots.lHand = childOf(slots.lForeArm);
     if (!slots.rHand && slots.rForeArm)      slots.rHand = childOf(slots.rForeArm);
 
-    // Leg chain recovery
     if (!slots.lShin && slots.lFoot)   slots.lShin = parentOf(slots.lFoot);
     if (!slots.rShin && slots.rFoot)   slots.rShin = parentOf(slots.rFoot);
     if (!slots.lShin && slots.lThigh)  slots.lShin = childOf(slots.lThigh);
@@ -211,7 +184,6 @@
     if (!slots.lFoot && slots.lShin)   slots.lFoot = childOf(slots.lShin);
     if (!slots.rFoot && slots.rShin)   slots.rFoot = childOf(slots.rShin);
 
-    // Hips children → thighs
     if (slots.hips){
       const hipsKids = slots.hips.children.filter(function(c){
         return (c.isBone || c.type === 'Bone') && !/spine|chest|neck/i.test(c.name || '');
@@ -236,7 +208,7 @@
   }
 
   // ═════════════════════════════════════════════════════════════
-  //  ARMS-DOWN — world-space bone pointing (rig-agnostic)
+  //  ARMS-DOWN bake (world-space bone pointing)
   // ═════════════════════════════════════════════════════════════
   const _v1 = new THREE.Vector3();
   const _v2 = new THREE.Vector3();
@@ -291,7 +263,6 @@
     if (skel.slots.lUpperArm && pointBoneDown(skel.slots.lUpperArm, _targetDown)) applied++;
     if (skel.slots.rUpperArm && pointBoneDown(skel.slots.rUpperArm, _targetDown)) applied++;
 
-    // Slight natural tilt
     ['lUpperArm','rUpperArm'].forEach(function(slot){
       const b = skel.slots[slot];
       if (!b) return;
@@ -303,7 +274,6 @@
       b.updateMatrixWorld(true);
     });
 
-    // Save as new rest
     BONE_SLOTS.forEach(function(s){
       if (skel.slots[s]) skel.rest[s] = skel.slots[s].quaternion.clone();
     });
@@ -311,12 +281,8 @@
     return applied;
   }
 
-  // ═════════════════════════════════════════════════════════════
-  //  RIG CALIBRATION (leg swing axis etc.)
-  // ═════════════════════════════════════════════════════════════
   function calibrateRig(skel){
     const X = new THREE.Vector3(1,0,0), Y = new THREE.Vector3(0,1,0), Z = new THREE.Vector3(0,0,1);
-
     const legResults = [X, Y, Z].map(function(axis){
       let bestZ = 0, sign = 1;
       [0.5, -0.5].forEach(function(s){
@@ -343,9 +309,86 @@
   }
 
   // ═════════════════════════════════════════════════════════════
+  //  ATTACH BAT / BALL TO HAND BONES
+  // ═════════════════════════════════════════════════════════════
+  // Bat grip offset in world-Y: bat origin (blade bottom) sits
+  // this far below the hand so the handle top meets the palm.
+  const BAT_GRIP_OFFSET = 0.96;
+
+  function attachAccessories(playerObj, accessoryRef){
+    if (!accessoryRef) return;
+    const skel  = playerObj.skel;
+    const group = playerObj.group;
+    const role  = playerObj.role;
+    const scene = window.StadiumView.scene;
+
+    group.updateMatrixWorld(true);
+
+    // ─── BAT (Striker / Non-Striker) ─────────────────────────
+    if (accessoryRef.bat){
+      const bat  = accessoryRef.bat;
+      // Prefer the RIGHT hand if present, fall back to left
+      const hand = skel.slots.rHand || skel.slots.lHand;
+
+      if (hand){
+        hand.updateWorldMatrix(true, false);
+
+        const handPos = new THREE.Vector3();
+        hand.getWorldPosition(handPos);
+
+        // Detach from the group
+        if (bat.parent) bat.parent.remove(bat);
+        scene.add(bat);
+
+        // Put the bat in world space so the grip meets the hand,
+        // blade pointing straight down. Bat's local origin is at
+        // the bottom of the blade, so we shift up by the grip offset.
+        bat.position.set(handPos.x, handPos.y - BAT_GRIP_OFFSET, handPos.z);
+        bat.quaternion.identity();
+        bat.scale.set(1, 1, 1);
+        bat.updateMatrixWorld(true);
+
+        // Reparent to the hand bone — world transform preserved,
+        // and now the bat follows the hand for the rest of time.
+        hand.attach(bat);
+
+        playerObj.batAttached = true;
+        console.log('[PlayerControl] ' + role + ' · bat attached to hand "' + hand.name + '"');
+      } else {
+        console.warn('[PlayerControl] ' + role + ' · no hand bone — bat left in group');
+      }
+    }
+
+    // ─── BALL (Bowler) ───────────────────────────────────────
+    if (accessoryRef.ball){
+      const ball = accessoryRef.ball;
+      const hand = skel.slots.rHand || skel.slots.lHand;
+
+      if (hand){
+        hand.updateWorldMatrix(true, false);
+
+        const handPos = new THREE.Vector3();
+        hand.getWorldPosition(handPos);
+
+        if (ball.parent) ball.parent.remove(ball);
+        scene.add(ball);
+
+        ball.position.copy(handPos);
+        ball.quaternion.identity();
+        ball.updateMatrixWorld(true);
+
+        hand.attach(ball);
+
+        playerObj.ballAttached = true;
+        console.log('[PlayerControl] ' + role + ' · ball attached to hand "' + hand.name + '"');
+      }
+    }
+  }
+
+  // ═════════════════════════════════════════════════════════════
   //  PLAYER WRAPPER
   // ═════════════════════════════════════════════════════════════
-  function makePlayer(role, group){
+  function makePlayer(role, group, accessoryRef){
     const skel = buildSkeleton(group);
     if (skel.bones.length === 0){
       console.warn('[PlayerControl] ' + role + ': no bones');
@@ -353,9 +396,12 @@
     }
     const armsBaked = bakeArmsDown(skel);
     calibrateRig(skel);
-    return {
+
+    const playerObj = {
       role, group, skel,
       armsBaked,
+      batAttached: false,
+      ballAttached: false,
       mode: 'idle',
       action: null,
       phase: 0,
@@ -369,6 +415,9 @@
         rotY: group.rotation.y
       }
     };
+
+    attachAccessories(playerObj, accessoryRef);
+    return playerObj;
   }
 
   // ═════════════════════════════════════════════════════════════
@@ -377,19 +426,22 @@
   function boot(rawPlayers){
     const roles = Object.keys(rawPlayers);
     console.log('[PlayerControl] roles:', roles.join(', '));
+    const accessories = (window.StadiumView.accessories) || {};
 
     const players = {};
     let totalBones = 0;
 
     roles.forEach(function(r){
-      const p = makePlayer(r, rawPlayers[r]);
+      const p = makePlayer(r, rawPlayers[r], accessories[r]);
       if (!p) return;
       players[r] = p;
       totalBones += p.skel.bones.length;
       const matched = BONE_SLOTS.filter(function(s){ return p.skel.slots[s]; }).length;
       console.log('[PlayerControl] ' + r + ' · ' + p.skel.bones.length +
                   ' bones · ' + matched + '/' + BONE_SLOTS.length +
-                  ' slots · arms-down=' + p.armsBaked);
+                  ' slots · arms-down=' + p.armsBaked +
+                  (p.batAttached  ? ' · bat✓'  : '') +
+                  (p.ballAttached ? ' · ball✓' : ''));
     });
 
     if (Object.keys(players).length === 0){
@@ -399,13 +451,8 @@
     console.log('[PlayerControl] total ' + totalBones + ' bones across ' +
                 Object.keys(players).length + ' players');
 
-    const firstKey = Object.keys(players)[0];
-    const firstSkel = players[firstKey].skel;
-    const missing = BONE_SLOTS.filter(function(s){ return !firstSkel.slots[s]; });
-    if (missing.length) console.warn('[PlayerControl] missing slots in ' + firstKey + ': ' + missing.join(', '));
-
     // ═══════════════════════════════════════════════════════════
-    //  ANIMATION TABLES
+    //  KINEMATIC TABLES
     // ═══════════════════════════════════════════════════════════
     const X = new THREE.Vector3(1,0,0);
     const Y = new THREE.Vector3(0,1,0);
@@ -415,30 +462,21 @@
     const _qb = new THREE.Quaternion();
 
     function applyDeltaX(skel, slot, angle, restQ){
-      const b = skel.slots[slot];
-      if (!b) return;
-      const base = restQ || skel.rest[slot];
-      if (!base) return;
-      _qa.setFromAxisAngle(X, angle);
-      _qb.copy(base).multiply(_qa);
+      const b = skel.slots[slot]; if (!b) return;
+      const base = restQ || skel.rest[slot]; if (!base) return;
+      _qa.setFromAxisAngle(X, angle); _qb.copy(base).multiply(_qa);
       b.quaternion.copy(_qb);
     }
     function applyDeltaY(skel, slot, angle, restQ){
-      const b = skel.slots[slot];
-      if (!b) return;
-      const base = restQ || skel.rest[slot];
-      if (!base) return;
-      _qa.setFromAxisAngle(Y, angle);
-      _qb.copy(base).multiply(_qa);
+      const b = skel.slots[slot]; if (!b) return;
+      const base = restQ || skel.rest[slot]; if (!base) return;
+      _qa.setFromAxisAngle(Y, angle); _qb.copy(base).multiply(_qa);
       b.quaternion.copy(_qb);
     }
     function applyDeltaZ(skel, slot, angle, restQ){
-      const b = skel.slots[slot];
-      if (!b) return;
-      const base = restQ || skel.rest[slot];
-      if (!base) return;
-      _qa.setFromAxisAngle(Z, angle);
-      _qb.copy(base).multiply(_qa);
+      const b = skel.slots[slot]; if (!b) return;
+      const base = restQ || skel.rest[slot]; if (!base) return;
+      _qa.setFromAxisAngle(Z, angle); _qb.copy(base).multiply(_qa);
       b.quaternion.copy(_qb);
     }
 
@@ -471,7 +509,7 @@
       }
     }
 
-    // 2. TORSO & CORE
+    // 2. TORSO
     function torso(p, t){
       const sk = p.skel;
       if (p.mode === 'idle'){
@@ -517,6 +555,7 @@
     // 5. BOWLING
     function bowlingAction(p){
       const sk = p.skel;
+      // Right arm windmill — bat/ball follow because they're children of the hand
       applyDeltaX(sk, 'rUpperArm', p.phase * Math.PI * 2);
       applyDeltaX(sk, 'lUpperArm', -Math.sin(p.phase * Math.PI) * 1.5);
     }
@@ -560,7 +599,10 @@
     function battingSwing(p){
       const sk = p.skel;
       const a = p.phase;
+      // Arms lift + swing — bat follows the right hand
       applyDeltaZ(sk, 'lUpperArm', Math.sin(a * Math.PI) * 0.8);
+      applyDeltaZ(sk, 'rUpperArm', Math.sin(a * Math.PI) * 0.6);
+      applyDeltaX(sk, 'rUpperArm', -Math.sin(a * Math.PI) * 0.5);
       if (a > 0.6){
         applyDeltaY(sk, 'lHand', Math.PI);
         applyDeltaY(sk, 'rHand', Math.PI);
@@ -575,7 +617,6 @@
       const elbow = a < 0.5 ? 1.5 : Math.max(0, 1.5 - a * 3);
       applyDeltaX(sk, 'rForeArm', elbow, sk.rest.rForeArm);
     }
-
     function keeperDive(p){
       const sk = p.skel;
       const a = p.phase;
@@ -584,7 +625,6 @@
       p.group.position.y = p.home.y + Math.sin(a * Math.PI) * 0.4;
       applyDeltaZ(sk, 'spine', dir * a * (Math.PI / 2));
     }
-
     function stumping(p){
       const sk = p.skel;
       applyDeltaY(sk, 'rUpperArm', p.phase * (Math.PI / 1.5));
@@ -634,6 +674,18 @@
     }
 
     // ═══════════════════════════════════════════════════════════
+    //  BALL VISIBILITY — bowler's hand-ball only visible at rest/runup
+    // ═══════════════════════════════════════════════════════════
+    const bowlerBall = accessories['Bowler'] && accessories['Bowler'].ball;
+    function updateBallVisibility(){
+      if (!bowlerBall) return;
+      const phase = (window.StadiumAnim && window.StadiumAnim.currentPhase)
+                  ? window.StadiumAnim.currentPhase() : 'idle';
+      const showPhases = ['idle','guard','mark_runup','runup'];
+      bowlerBall.visible = showPhases.indexOf(phase) >= 0;
+    }
+
+    // ═══════════════════════════════════════════════════════════
     //  MAIN TICKER
     // ═══════════════════════════════════════════════════════════
     let globalT = 0;
@@ -650,18 +702,18 @@
       const doBones = (frameCount % BONE_EVERY === 0);
       const ball = doBones ? getBallWorldPosition() : null;
 
+      // Ball visibility toggle (cheap — every frame is fine)
+      updateBallVisibility();
+
       Object.keys(players).forEach(function(role){
         const p = players[role];
         const sk = p.skel;
 
-        // Advance phases on every frame
         if (!p.loop && p.phase < 1){
           p.phase = Math.min(1, p.phase + dt * p.phaseSpeed);
           if (p.phase >= 1){
             setTimeout(function(){
-              if (p.phase >= 1){
-                p.mode = 'idle'; p.action = null; p.phase = 0;
-              }
+              if (p.phase >= 1){ p.mode = 'idle'; p.action = null; p.phase = 0; }
             }, 250);
           }
         } else if (p.loop){
@@ -699,7 +751,9 @@
       return null;
     }
 
-    // Keyboard
+    // ═══════════════════════════════════════════════════════════
+    //  KEYBOARD
+    // ═══════════════════════════════════════════════════════════
     let selected = Object.keys(players)[0];
     const keys = {};
 
@@ -753,16 +807,17 @@
     }
     keyLoop(0);
 
-    // Toast
+    // ═══════════════════════════════════════════════════════════
+    //  TOAST
+    // ═══════════════════════════════════════════════════════════
     let toast = document.getElementById('pc-toast');
     if (!toast){
       toast = document.createElement('div');
       toast.id = 'pc-toast';
       toast.style.cssText =
         'position:fixed;bottom:92px;left:50%;transform:translateX(-50%);z-index:400;' +
-        'background:rgba(8,8,12,.9);color:#00e676;' +
-        'border-left:3px solid #00e676;border-radius:3px;' +
-        'padding:8px 14px;font-family:JetBrains Mono,monospace;' +
+        'background:rgba(8,8,12,.9);color:#00e676;border-left:3px solid #00e676;' +
+        'border-radius:3px;padding:8px 14px;font-family:JetBrains Mono,monospace;' +
         'font-size:11px;letter-spacing:1.5px;text-transform:uppercase;' +
         'pointer-events:none;opacity:0;transition:opacity .25s;';
       document.body.appendChild(toast);
@@ -776,12 +831,13 @@
     }
     window.showToast = showToast;
 
-    // Public API
+    // ═══════════════════════════════════════════════════════════
+    //  PUBLIC API
+    // ═══════════════════════════════════════════════════════════
     function play(role, action, opts){
       const p = players[role];
-      if (!p){ console.warn('[PlayerControl] no player', role); return false; }
+      if (!p) return false;
       opts = opts || {};
-
       const A = {
         bowling:      { mode: 'bowling',  phaseSpeed: 0.6,  loop: false },
         batting:      { mode: 'batting',  phaseSpeed: 0.9,  loop: false },
@@ -805,9 +861,8 @@
         celebrate:    { mode: 'ambient',  action: 'celebrate', phaseSpeed: 1.0, loop: true },
         disappointed: { mode: 'disappointed', phaseSpeed: 1.0, loop: true }
       };
-
       const def = A[action];
-      if (!def){ console.warn('[PlayerControl] unknown action', action); return false; }
+      if (!def) return false;
 
       p.mode = def.mode;
       p.action = def.action || action;
