@@ -358,8 +358,53 @@
       scene.add(group);
       playerRefs[pos.role] = group;
 
-      console.log('[Player ' + pos.role + '] scale=' + scale.toFixed(3) + ' meshes=' + vis.meshCount);
-    }
+      // ─── Ground marker so fielders are visible from far ───
+      const roleColors = {
+        'Striker':     0x22d3ee,   // cyan
+        'Non-Striker': 0x22d3ee,
+        'Bowler':      0xe10600,   // red
+        'Keeper':      0xfbbf24,   // gold
+        'Umpire (Bowl End)': 0xa855f7,  // purple
+        'Umpire (Sq Leg)':   0xa855f7,
+        'Slip':        0x00e676,   // green
+        'Point':       0x00e676,
+        'Cover':       0x00e676,
+        'Mid-Off':     0x00e676,
+        'Mid-On':      0x00e676,
+        'Mid-Wicket':  0x00e676,
+        'Square Leg':  0x00e676,
+        'Fine Leg':    0x00e676,
+        'Third Man':   0x00e676
+      };
+      const ringColor = roleColors[pos.role] || 0x00e676;
+
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(0.9, 1.3, 24),
+        new THREE.MeshBasicMaterial({
+          color: ringColor,
+          side: THREE.DoubleSide,
+          transparent: true,
+          opacity: 0.85,
+          depthWrite: false
+        })
+      );
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.set(pos.x, fieldY + 0.05, pos.z);
+      scene.add(ring);
+
+      // Vertical pole so you can see them from side angles
+      const pole = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.06, 0.06, 3.5, 6),
+        new THREE.MeshBasicMaterial({
+          color: ringColor,
+          transparent: true,
+          opacity: 0.55
+        })
+      );
+      pole.position.set(pos.x, fieldY + 1.75, pos.z);
+      scene.add(pole);
+
+      console.log('[Player ' + pos.role + '] scale=' + scale.toFixed(3) + ' meshes=' + vis.meshCount);    }
     console.log('[Players] placed 15 groups');
   }
 
