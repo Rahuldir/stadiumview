@@ -1,5 +1,8 @@
 /* ══════════════════════════════════════════════════════════════
-   StadiumView — camera controls + Auto Director + real flood lights
+   StadiumView — camera controls + Auto Director + flood lights
+   • Every view target is relative to fieldY (grass level)
+   • Camera Y is clamped to never drop below grass + 0.5 m
+   • Phi clamped to (0.05 … π*0.49) — no underground angles
    ══════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
@@ -11,18 +14,44 @@
   }, 50);
 
   function init(){
-    const { scene, camera, sun, hemi, ambient } = window.StadiumView;
-    const renderer = window.StadiumView.renderer;
+    const SV = window.StadiumView;
+    const scene    = SV.scene;
+    const camera   = SV.camera;
+    const renderer = SV.renderer;
+    const sun      = SV.sun     || null;
+    const hemi     = SV.hemi    || null;
+    const ambient  = SV.ambient || null;
 
-    const target = new THREE.Vector3(0, 25, 0);
+    // Ground reference — every camera target is relative to this
+    const F = SV.fieldY || 0;
+
+    const target = new THREE.Vector3(0, F + 10, 0);
     let theta  = Math.PI * 0.25;
     let phi    = Math.PI * 0.32;
-    let radius = 400;
+    let radius = 240;
+
+    // ─── Hard clamp for phi (never horizontal-below, never top-down) ───
+    const PHI_MIN = 0.10;              // ~6°    (nearly top-down)
+    const PHI_MAX = Math.PI * 0.48;    // ~86°   (nearly horizontal, still above)
+
+    function clampPhi(v){
+      return Math.max(PHI_MIN, Math.min(PHI_MAX, v));
+    }
+
+    // ─── Update camera with ground protection ─────────────────────────
+    const GROUND_CLEARANCE = 0.5;      // camera never below grass + 0.5 m
+    const HARD_MIN_Y       = F + GROUND_CLEARANCE;
 
     function updateCamera(){
+      phi = clampPhi(phi);
+
       const x = target.x + radius * Math.sin(phi) * Math.cos(theta);
-      const y = target.y + radius * Math.cos(phi);
+      let   y = target.y + radius * Math.cos(phi);
       const z = target.z + radius * Math.sin(phi) * Math.sin(theta);
+
+      // Hard floor — camera never goes underground
+      if (y < HARD_MIN_Y) y = HARD_MIN_Y;
+
       camera.position.set(x, y, z);
       camera.lookAt(target);
     }
@@ -38,22 +67,22 @@
       if (!dragging) return;
       theta -= (e.clientX - lastX) * 0.005;
       phi   -= (e.clientY - lastY) * 0.005;
-      phi = Math.max(0.05, Math.min(Math.PI * 0.49, phi));
+      phi = clampPhi(phi);
       lastX = e.clientX; lastY = e.clientY;
       updateCamera();
     });
-    renderer.domElement.addEventListener('pointerup', function(){ dragging = false; });
+    renderer.domElement.addEventListener('pointerup',    function(){ dragging = false; });
     renderer.domElement.addEventListener('pointerleave', function(){ dragging = false; });
 
     // ─── Wheel zoom ──────────────────────────────────────────
     renderer.domElement.addEventListener('wheel', function(e){
       e.preventDefault();
       if (autoDirector.active) stopAutoDirector();
-      radius = Math.max(5, Math.min(1500, radius + e.deltaY * 0.5));
+      radius = Math.max(2, Math.min(600, radius + e.deltaY * 0.5));
       updateCamera();
     }, { passive: false });
 
-    // ─── Pinch ───────────────────────────────────────────────
+    // ─── Pinch zoom ──────────────────────────────────────────
     let lastPinch = 0;
     renderer.domElement.addEventListener('touchmove', function(e){
       if (e.touches.length === 2){
@@ -62,7 +91,7 @@
         const dy = e.touches[0].clientY - e.touches[1].clientY;
         const dist = Math.sqrt(dx*dx + dy*dy);
         if (lastPinch > 0){
-          radius = Math.max(5, Math.min(1500, radius - (dist - lastPinch) * 1.2));
+          radius = Math.max(2, Math.min(600, radius - (dist - lastPinch) * 1.2));
           updateCamera();
         }
         lastPinch = dist;
@@ -70,42 +99,51 @@
     }, { passive: true });
     renderer.domElement.addEventListener('touchend', function(){ lastPinch = 0; });
 
-    // ─── Smooth tween ────────────────────────────────────────
+    // ─── Tween ───────────────────────────────────────────────
     function smoothTo(newTarget, newTheta, newPhi, newRadius, duration){
-      const sT = target.clone();
-      const sTh = theta, sP = phi, sR = radius;
-      const t0 = performance.now();
-      const dur = duration || 900;
+      const sT   = target.clone();
+      const sTh  = theta;
+      const sP   = phi;
+      const sR   = radius;
+      const tPhi = clampPhi(newPhi);
+      const t0   = performance.now();
+      const dur  = duration || 900;
+
       function step(){
         const t = Math.min(1, (performance.now() - t0) / dur);
         const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
         target.lerpVectors(sT, newTarget, e);
         theta  = sTh + (newTheta  - sTh) * e;
-        phi    = sP  + (newPhi    - sP)  * e;
-        radius = sR  + (newRadius - sR)  * e;
+        phi    = sP  + (tPhi     - sP)  * e;
+        radius = sR  + (newRadius - sR) * e;
         updateCamera();
         if (t < 1) requestAnimationFrame(step);
       }
       requestAnimationFrame(step);
     }
 
-    // ─── Camera views ────────────────────────────────────────
+    // ─── Views ───────────────────────────────────────────────
+    // Helper: Y values are ALWAYS relative to ground level (F).
+    // All radii tuned so the camera stays inside/just outside the bowl.
     const V = THREE.Vector3;
+    function v(x, y, z){ return new V(x, F + y, z); }
+
     const VIEWS = {
-      overview: { t: new V(0, 25, 0),      th: Math.PI * 0.25,   ph: Math.PI * 0.32, r: 450 },
-      pitch:    { t: new V(0, 3, 0),       th: Math.PI * 0.5,    ph: Math.PI * 0.42, r: 45  },
-      batting:  { t: new V(0, 3, 9),       th: Math.PI * 0.5,    ph: Math.PI * 0.45, r: 18  },
-      aerial:   { t: new V(0, 0, 0),       th: Math.PI * 0.25,   ph: 0.1,            r: 550 },
-      spider:   { t: new V(0, 5, 0),       th: Math.PI * 0.75,   ph: Math.PI * 0.42, r: 80  },
-      drone:    { t: new V(0, 10, 5),      th: Math.PI * 1.2,    ph: Math.PI * 0.25, r: 120 },
-      tv:       { t: new V(0, 3, 9),       th: Math.PI * 0.5,    ph: Math.PI * 0.5,  r: 38  },
-      tvlong:   { t: new V(0, 2, 9),       th: Math.PI * 0.5,    ph: Math.PI * 0.46, r: 55  },
-      tvhigh:   { t: new V(0, 5, 9),       th: Math.PI * 0.5,    ph: Math.PI * 0.38, r: 40  },
-      bowler:   { t: new V(0, 2, 9),       th: 0,                ph: Math.PI * 0.5,  r: 40  },
-      batsman:  { t: new V(0, 2, -6),      th: Math.PI,          ph: Math.PI * 0.5,  r: 35  },
-      closeup:  { t: new V(0.35, 1.5, 9),  th: Math.PI * 1.25,   ph: Math.PI * 0.35, r: 8   },
-      stumps:   { t: new V(0, 1.5, 10),    th: 0,                ph: Math.PI * 0.55, r: 12  },
-      sideOn:   { t: new V(0, 2, 0),       th: Math.PI * 0.5,    ph: Math.PI * 0.42, r: 30  }
+      //     target (x, y-above-grass, z)   theta               phi                radius
+      overview:  { t: v(0,    10,  0),       th: Math.PI * 0.25, ph: Math.PI * 0.30, r: 220 },
+      tv:        { t: v(0,     4,  0),       th: 0,              ph: Math.PI * 0.40, r: 60  },
+      tvlong:    { t: v(0,     4,  0),       th: 0,              ph: Math.PI * 0.42, r: 90  },
+      tvhigh:    { t: v(0,     4,  0),       th: 0,              ph: Math.PI * 0.28, r: 65  },
+      bowler:    { t: v(0,     2,  8.6),     th: -Math.PI * 0.50, ph: Math.PI * 0.42, r: 32  },
+      batsman:   { t: v(0.4,   2,  8.6),     th: Math.PI * 0.50,  ph: Math.PI * 0.42, r: 12  },
+      batting:   { t: v(0.4,   2,  8.6),     th: Math.PI * 0.50,  ph: Math.PI * 0.42, r: 12  },
+      closeup:   { t: v(0.4,   1.4, 8.6),    th: -Math.PI * 0.35, ph: Math.PI * 0.42, r: 4.5 },
+      stumps:    { t: v(0.4,   1.0, 8.6),    th: Math.PI * 0.50,  ph: Math.PI * 0.42, r: 3   },
+      sideOn:    { t: v(0,     2,  0),       th: 0,              ph: Math.PI * 0.46, r: 26  },
+      pitch:     { t: v(0,     1,  0),       th: 0,              ph: Math.PI * 0.42, r: 20  },
+      aerial:    { t: v(0,     0,  0),       th: Math.PI * 0.25, ph: 0.14,           r: 260 },
+      spider:    { t: v(0,     6,  0),       th: Math.PI * 0.75, ph: Math.PI * 0.35, r: 42  },
+      drone:     { t: v(0,     4,  5),       th: Math.PI * 1.2,  ph: Math.PI * 0.35, r: 65  }
     };
 
     function applyView(name){
@@ -133,7 +171,6 @@
       applyView(name);
       autoDirector.timer = setTimeout(nextAutoView, autoDirector.holdMs);
     }
-
     function startAutoDirector(){
       if (autoDirector.active) return;
       autoDirector.active = true;
@@ -155,40 +192,59 @@
     }
 
     // ─── Time of day ─────────────────────────────────────────
-    const setFloods = window.StadiumView.setFloodlights || function(){};
-    const floodCount = (window.StadiumView.floodLights || []).length;
+    const setFloods = (typeof SV.setFloodlights === 'function') ? SV.setFloodlights : function(){};
+    const floodCount = (SV.floodLights || []).length;
 
     function setTime(mode){
-      if (mode === 'day'){
-        scene.background.setHex(0x87b8e0);
-        if (ambient) ambient.intensity = 0.8;
-        hemi.intensity = 0.6;
-        sun.intensity  = 1.5;
-        sun.color.setHex(0xffffff);
-        sun.position.set(80, 400, 80);
-        setFloods(0.0);
-        renderer.toneMappingExposure = 1.0;
-      } else if (mode === 'sunset'){
-        scene.background.setHex(0x552a20);
-        if (ambient) ambient.intensity = 0.4;
-        hemi.intensity = 0.4;
-        sun.intensity  = 0.9;
-        sun.color.setHex(0xff8855);
-        sun.position.set(300, 60, -200);
-        setFloods(0.35);
-        renderer.toneMappingExposure = 1.0;
-      } else {  // night
-        scene.background.setHex(0x020713);
-        if (ambient) ambient.intensity = 0.05;
-        hemi.intensity = 0.10;
-        sun.intensity  = 0.0;
-        sun.color.setHex(0x8899ff);
-        setFloods(1.0);
-        renderer.toneMappingExposure = 0.95;
+      if (!scene) return;
+
+      const bgHex = mode === 'day'    ? 0x87b8e0
+                  : mode === 'sunset' ? 0x4a1f16
+                  :                     0x01040a;
+
+      if (scene.background && scene.background.setHex){
+        scene.background.setHex(bgHex);
+      } else {
+        scene.background = new THREE.Color(bgHex);
       }
-      if (scene.fog && scene.fog.color) scene.fog.color.copy(scene.background);
-      console.log('[Time] ' + mode + ' — floods=' + floodCount + ' set=' +
-                  (mode === 'night' ? 'FULL' : mode === 'sunset' ? '35%' : 'OFF'));
+
+      if (ambient) ambient.intensity = mode === 'day' ? 0.8
+                                    : mode === 'sunset' ? 0.35
+                                    : 0.02;
+      if (hemi)    hemi.intensity    = mode === 'day' ? 0.6
+                                    : mode === 'sunset' ? 0.35
+                                    : 0.05;
+
+      if (sun){
+        sun.intensity = mode === 'day' ? 1.5
+                      : mode === 'sunset' ? 0.85
+                      : 0.0;
+        if (sun.color && sun.color.setHex){
+          sun.color.setHex(mode === 'day' ? 0xffffff
+                         : mode === 'sunset' ? 0xff8855
+                         : 0x8090ff);
+        }
+        if (sun.position && sun.position.set){
+          if (mode === 'sunset')       sun.position.set(300, 60, -200);
+          else if (mode === 'night')   sun.position.set(-150, 200, 80);
+          else                         sun.position.set(80, 400, 80);
+        }
+      }
+
+      if (scene.fog && scene.fog.color && scene.fog.color.setHex){
+        scene.fog.color.setHex(bgHex);
+      }
+
+      setFloods(mode === 'night' ? 1.0 : mode === 'sunset' ? 0.35 : 0.0);
+
+      if (renderer){
+        renderer.toneMappingExposure = mode === 'night'  ? 0.75
+                                     : mode === 'sunset' ? 0.95
+                                     : 1.0;
+      }
+
+      console.log('[Time] ' + mode + ' — floods=' + floodCount +
+                  ' set=' + (mode === 'night' ? 'FULL' : mode === 'sunset' ? '35%' : 'OFF'));
     }
 
     // ─── Inject controls ─────────────────────────────────────
@@ -196,10 +252,13 @@
       const bar = document.getElementById('controls');
       if (!bar) return;
 
-      const autoBtn = document.createElement('button');
-      autoBtn.id = 'btn-auto';
-      autoBtn.textContent = '▶ Auto Director';
-      autoBtn.addEventListener('click', toggleAutoDirector);
+      if (!document.getElementById('btn-auto')){
+        const autoBtn = document.createElement('button');
+        autoBtn.id = 'btn-auto';
+        autoBtn.textContent = '▶ Auto Director';
+        autoBtn.addEventListener('click', toggleAutoDirector);
+        bar.appendChild(autoBtn);
+      }
 
       const viewBtnRow = document.createElement('div');
       viewBtnRow.style.cssText =
@@ -214,8 +273,6 @@
         btn.style.fontSize = '9.5px';
         viewBtnRow.appendChild(btn);
       });
-
-      bar.appendChild(autoBtn);
       bar.appendChild(viewBtnRow);
 
       bar.querySelectorAll('button[data-view]').forEach(function(b){
@@ -242,7 +299,10 @@
       if (e.code === 'Space'){ e.preventDefault(); toggleAutoDirector(); }
     });
 
-    console.log('[StadiumView] ✅ Controls ready — flood towers: ' + floodCount);
+    console.log('[Camera] ground = y ' + F.toFixed(2) + ' — floor clamp = y ' +
+                HARD_MIN_Y.toFixed(2) + ' · phi range [' +
+                PHI_MIN.toFixed(2) + '…' + PHI_MAX.toFixed(2) + ']');
+    console.log('[StadiumView] ✅ Controls ready — flood lights: ' + floodCount);
   }
 
 })();
