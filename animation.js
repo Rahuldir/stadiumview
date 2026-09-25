@@ -1,11 +1,12 @@
 /* ══════════════════════════════════════════════════════════════
    StadiumView — Advanced cricket animation engine
-   • Realistic bowler run-up with arm swing
+   • Batsman takes guard (bat taps, looks around)
+   • Bowler marks run-up (walks to mark, sets feet)
+   • Realistic run-up with arm swing
    • Ball physics: gravity, bounce, spin
    • Bat-ball contact detection
    • Ball trail on 4s and 6s
-   • 6 flies out of ground
-   • 4 rolls/bounces to boundary
+   • 6 flies out of ground, 4 rolls/bounces to boundary
    • 1/2/3 with running between wickets
    • Umpire signals, wicket celebration
    ══════════════════════════════════════════════════════════════ */
@@ -15,14 +16,14 @@
   // ─── Physical constants ──────────────────────────────────────
   const GRAVITY       = 9.81;
   const BALL_RADIUS   = 0.036;
-  const BOUNDARY_R    = 35;         // metres
+  const BOUNDARY_R    = 38;
   const BOUNCE_DAMP   = 0.42;
   const AIR_DRAG      = 0.015;
   const GROUND_FRIC   = 2.4;
 
   // ─── Field reference ─────────────────────────────────────────
-  const STRIKER_Z        = 9;
-  const NON_STRIKER_Z    = -9;
+  const STRIKER_Z        = 8.6;
+  const NON_STRIKER_Z    = -8.6;
   const BOWLER_START_Z   = -24;
   const BOWLER_RELEASE_Z = -11;
 
@@ -47,12 +48,12 @@
     }
 
     const FIELDER_ROLES = [
-      'Slip','Point','Cover','Mid-Off','Mid-On',
-      'Mid-Wicket','Square Leg','Fine Leg','Third Man'
+      'Third Man','Point','Cover','Mid-Off','Mid-On',
+      'Mid-Wicket','Square Leg','Fine Leg','Slip'
     ];
     const fielders = FIELDER_ROLES.map(function(r){ return players[r]; }).filter(Boolean);
 
-    // Save home state
+    // ─── Save home state ─────────────────────────────────────
     const home = {};
     Object.keys(players).forEach(function(role){
       home[role] = {
@@ -69,7 +70,7 @@
     };
 
     // ═══════════════════════════════════════════════════════════
-    //  FLIGHT BALL (world-space, with trail)
+    //  FLIGHT BALL
     // ═══════════════════════════════════════════════════════════
     const flightBall = bowlerBall.clone(true);
     flightBall.traverse(function(c){
@@ -83,7 +84,7 @@
     scene.add(flightBall);
     if (bowlerBall) bowlerBall.visible = false;
 
-    // ─── Trail effect (a growing line behind the ball) ──────
+    // ─── Trail effect ────────────────────────────────────────
     const trailMaxPoints = 60;
     const trailPositions = new Float32Array(trailMaxPoints * 3);
     const trailGeometry = new THREE.BufferGeometry();
@@ -91,10 +92,7 @@
     trailGeometry.setDrawRange(0, 0);
 
     const trailMaterial = new THREE.LineBasicMaterial({
-      color: 0x22d3ee,
-      transparent: true,
-      opacity: 0.85,
-      linewidth: 2
+      color: 0x22d3ee, transparent: true, opacity: 0.85, linewidth: 2
     });
     const trail = new THREE.Line(trailGeometry, trailMaterial);
     trail.frustumCulled = false;
@@ -110,7 +108,6 @@
     }
     function trailPush(pos){
       if (trailCount >= trailMaxPoints){
-        // Shift back
         for (let i = 0; i < trailMaxPoints - 1; i++){
           trailPositions[i*3+0] = trailPositions[(i+1)*3+0];
           trailPositions[i*3+1] = trailPositions[(i+1)*3+1];
@@ -170,25 +167,20 @@
         flightBall.rotation.x += newSpeed * dt * 6;
         flightBall.rotation.z -= ball.vel.x * dt * 6;
       } else {
-        // Gravity
         ball.vel.y -= GRAVITY * dt;
 
-        // Magnus effect (spin curve) — subtle
         const k = 0.00015;
         ball.vel.x += k * (ball.spinning.y * ball.vel.z - ball.spinning.z * ball.vel.y) * dt;
         ball.vel.z += k * (ball.spinning.x * ball.vel.y - ball.spinning.y * ball.vel.x) * dt;
 
-        // Air drag
         const drag = 1 - AIR_DRAG * dt;
         ball.vel.x *= drag;
         ball.vel.z *= drag;
 
-        // Integrate
         ball.pos.x += ball.vel.x * dt;
         ball.pos.y += ball.vel.y * dt;
         ball.pos.z += ball.vel.z * dt;
 
-        // Ground bounce
         const groundY = fieldY + BALL_RADIUS;
         if (ball.pos.y < groundY){
           ball.pos.y = groundY;
@@ -203,7 +195,6 @@
           }
         }
 
-        // Spin visual
         flightBall.rotation.x += 14 * dt;
         flightBall.rotation.y += 4 * dt;
       }
@@ -229,7 +220,6 @@
       const releaseY = fieldY + 2.0;
       const releasePos = new THREE.Vector3(0.55, releaseY, BOWLER_RELEASE_Z);
 
-      // Velocity to reach pitchZ in 0.5s
       const t = 0.5;
       const vx = (0.3 - releasePos.x) / t;
       const vz = (pitchZ - releasePos.z) / t;
@@ -239,22 +229,18 @@
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  HIT LAUNCH (after bat contact)
+    //  HIT LAUNCH
     // ═══════════════════════════════════════════════════════════
     function launchHit(outcome){
       const contactPos = new THREE.Vector3(
-        striker.position.x,
-        fieldY + 0.7,
-        striker.position.z
+        striker.position.x, fieldY + 0.7, striker.position.z
       );
 
-      // Wicket — ball goes into stumps
       if (outcome.wicket){
         launchBall(contactPos, new THREE.Vector3(0, 0.5, 10), { x: 0, y: 0, z: 0 });
         return;
       }
 
-      // Dot
       if (outcome.runs === 0){
         launchBall(contactPos, new THREE.Vector3(
           (Math.random() - 0.5) * 2, 1.5, -1
@@ -262,50 +248,34 @@
         return;
       }
 
-      // 6 — high arc, flies out of ground
       if (outcome.runs === 6){
         const angle = Math.random() * Math.PI * 2;
-        const dist = 55;                        // well past boundary
-        const peak = 20 + Math.random() * 10;   // 20–30m high
+        const dist = 55;
+        const peak = 20 + Math.random() * 10;
         const vy = Math.sqrt(2 * GRAVITY * peak);
         const totalTime = vy / GRAVITY * 2;
         const speed = dist / totalTime;
         launchBall(contactPos, new THREE.Vector3(
-          Math.cos(angle) * speed,
-          vy,
-          Math.sin(angle) * speed
+          Math.cos(angle) * speed, vy, Math.sin(angle) * speed
         ), { x: 30, y: 0, z: 0 });
-        // Trail ON for six — orange
         trailStart(0xff6d00);
         return;
       }
 
-      // 4 — grounded OR one-bounce, reaches boundary
       if (outcome.runs === 4){
         const angle = Math.random() * Math.PI * 2;
         const grounded = Math.random() < 0.5;
-        let vy;
-        let speed;
-        if (grounded){
-          // Low drive
-          vy = 2.2;
-          speed = 26;
-        } else {
-          // One bounce
-          vy = 8;
-          speed = 22;
-        }
+        let vy, speed;
+        if (grounded){ vy = 2.2; speed = 26; }
+        else         { vy = 8;   speed = 22; }
         launchBall(contactPos, new THREE.Vector3(
-          Math.cos(angle) * speed,
-          vy,
-          Math.sin(angle) * speed
+          Math.cos(angle) * speed, vy, Math.sin(angle) * speed
         ), { x: 18, y: 0, z: 0 });
-        // Trail ON for four — cyan
         trailStart(0x22d3ee);
         return;
       }
 
-      // 1, 2, 3 — hit to a fielder in the ring
+      // 1 / 2 / 3
       const angle = Math.random() * Math.PI * 2;
       const dist = 12 + outcome.runs * 6;
       const peak = 2 + outcome.runs * 0.5;
@@ -316,26 +286,19 @@
         vy,
         Math.sin(angle) * dist / totalTime
       ), { x: 10, y: 0, z: 0 });
-      // No trail for runs
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  BAT-BALL CONTACT DETECTION
+    //  BAT-BALL CONTACT
     // ═══════════════════════════════════════════════════════════
-    // Called every frame during FLIGHT phase
-    // Checks distance between ball and bat tip
     const batWorldPos = new THREE.Vector3();
-
     function checkBatContact(){
       if (!strikerBat) return false;
-      // Get bat's middle position in world space
       strikerBat.getWorldPosition(batWorldPos);
       const dx = ball.pos.x - batWorldPos.x;
       const dy = ball.pos.y - batWorldPos.y;
       const dz = ball.pos.z - batWorldPos.z;
-      const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
-      // Contact threshold — 0.5m for gameplay
-      return dist < 0.5;
+      return Math.sqrt(dx*dx + dy*dy + dz*dz) < 0.5;
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -356,16 +319,18 @@
     //  STATE MACHINE
     // ═══════════════════════════════════════════════════════════
     const PHASE = {
-      IDLE:     'idle',
-      RUNUP:    'runup',
-      DELIVERY: 'delivery',
-      INBOUND:  'inbound',
-      SWING:    'swing',
-      OUTBOUND: 'outbound',
-      RUNNING:  'running',
-      SIGNAL:   'signal',
-      RESET:    'reset',
-      WALK_BACK:'walk_back'
+      IDLE:       'idle',
+      GUARD:      'guard',
+      MARK_RUNUP: 'mark_runup',
+      RUNUP:      'runup',
+      DELIVERY:   'delivery',
+      INBOUND:    'inbound',
+      SWING:      'swing',
+      OUTBOUND:   'outbound',
+      RUNNING:    'running',
+      SIGNAL:     'signal',
+      RESET:      'reset',
+      WALK_BACK:  'walk_back'
     };
 
     let phase = PHASE.IDLE;
@@ -377,14 +342,16 @@
     let paused = false;
 
     const DURATIONS = {
-      idle:      1200,
-      runup:     1500,
-      delivery:  100,
-      inbound:   2000,
-      swing:     500,
-      signal:    1400,
-      reset:     900,
-      walk_back: 2000
+      idle:       1200,
+      guard:      2200,
+      mark_runup: 2400,
+      runup:      1500,
+      delivery:   100,
+      inbound:    2000,
+      swing:      500,
+      signal:     1400,
+      reset:      900,
+      walk_back:  2200
     };
 
     function setPhase(p, data){
@@ -400,36 +367,83 @@
     function lerp(a, b, t){ return a + (b - a) * t; }
 
     // ═══════════════════════════════════════════════════════════
-    //  IDLE ANIMATION
+    //  IDLE
     // ═══════════════════════════════════════════════════════════
     function animateIdle(now){
-      // Bat tap
-      const tapCycle = (now % 2600) / 2600;
-      const tap = tapCycle < 0.14 ? Math.sin(tapCycle * Math.PI / 0.14) * 0.12 : 0;
-      strikerBat.rotation.x = batRest.x + tap;
-      strikerBat.rotation.z = batRest.z;
-
-      // Batsman sway
-      striker.position.x = home['Striker'].pos.x + Math.sin(now * 0.0009) * 0.02;
-      striker.position.z = home['Striker'].pos.z + Math.cos(now * 0.001) * 0.02;
+      striker.position.x = home['Striker'].pos.x + Math.sin(now * 0.0009) * 0.015;
+      striker.position.z = home['Striker'].pos.z + Math.cos(now * 0.001) * 0.015;
+      striker.rotation.y = home['Striker'].rotY;
 
       if (nonStriker){
-        nonStriker.position.x = home['Non-Striker'].pos.x + Math.sin(now * 0.0008 + 1) * 0.03;
-        nonStriker.position.z = home['Non-Striker'].pos.z + Math.cos(now * 0.0007 + 1) * 0.03;
+        nonStriker.position.x = home['Non-Striker'].pos.x + Math.sin(now * 0.0008 + 1) * 0.02;
+        nonStriker.position.z = home['Non-Striker'].pos.z + Math.cos(now * 0.0007 + 1) * 0.02;
       }
 
-      // Fielder drift
-      fielders.forEach(function(f, i){
+      // Fielders return to their real positions (no drift)
+      fielders.forEach(function(f){
         const h = home[f.name] ? home[f.name].pos : f.position;
-        const swayX = Math.sin(now * 0.0005 + i) * 0.35;
-        const swayZ = Math.cos(now * 0.0004 + i * 1.7) * 0.25;
-        f.position.x += (h.x + swayX - f.position.x) * 0.02;
-        f.position.z += (h.z + swayZ - f.position.z) * 0.02;
+        f.position.x += (h.x - f.position.x) * 0.05;
+        f.position.z += (h.z - f.position.z) * 0.05;
+        f.position.y = fieldY;
       });
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  BOWLER RUN-UP — realistic arms
+    //  BATSMAN TAKES GUARD
+    // ═══════════════════════════════════════════════════════════
+    function animateGuard(p){
+      // Look around
+      const look = Math.sin(p * Math.PI * 2) * 0.18;
+      striker.rotation.y = home['Striker'].rotY + look;
+
+      // Two bat taps on the pitch
+      const tap1 = (p > 0.30 && p < 0.45)
+        ? Math.max(0, Math.sin((p - 0.30) * Math.PI / 0.15)) : 0;
+      const tap2 = (p > 0.55 && p < 0.70)
+        ? Math.max(0, Math.sin((p - 0.55) * Math.PI / 0.15)) : 0;
+      const tap = (tap1 + tap2) * 0.22;
+      strikerBat.rotation.x = batRest.x + tap;
+      strikerBat.rotation.z = batRest.z - tap * 0.4;
+
+      striker.position.y = fieldY + Math.abs(Math.sin(p * Math.PI * 4)) * 0.015;
+
+      if (nonStriker){
+        nonStriker.position.y = fieldY + Math.sin(p * Math.PI * 3) * 0.01;
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  BOWLER MARKS RUN-UP
+    // ═══════════════════════════════════════════════════════════
+    function animateMarkRunup(p){
+      if (p < 0.55){
+        const q = easeInOut(p / 0.55);
+        bowler.position.x = lerp(home['Bowler'].pos.x, 1.2, q);
+        bowler.position.z = lerp(home['Bowler'].pos.z, BOWLER_START_Z, q);
+        bowler.position.y = fieldY;
+        bowler.rotation.x = 0.05;
+        bowler.rotation.y = lerp(home['Bowler'].rotY, Math.PI * 0.05, q);
+      } else {
+        const q = (p - 0.55) / 0.45;
+        const footTap = Math.sin(q * Math.PI * 6) * 0.04;
+        bowler.position.x = 1.2 + footTap;
+        bowler.position.z = BOWLER_START_Z;
+        bowler.position.y = fieldY + Math.abs(footTap) * 0.3;
+        bowler.rotation.x = 0.05;
+
+        if (umpBowl){
+          umpBowl.rotation.y = Math.sin(q * Math.PI * 2) * 0.15;
+        }
+      }
+
+      if (keeper){
+        const q = Math.min(1, Math.max(0, (p - 0.55) / 0.45));
+        keeper.rotation.x = 0.10 + q * 0.15;
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  BOWLER RUN-UP
     // ═══════════════════════════════════════════════════════════
     function animateRunup(p){
       const e = easeInOut(p);
@@ -438,18 +452,13 @@
       bowler.position.y = fieldY + Math.abs(Math.sin(p * Math.PI * 8)) * 0.1;
       bowler.rotation.x = 0.15 * e;
 
-      // Arm swing — right arm rotates forward through full circle
-      // (each cycle represents one stride)
       const armSwing = Math.sin(p * Math.PI * 6) * 0.7;
       bowler.children.forEach(function(child){
         if (child.isGroup){
-          // Try to find arm subgroups by name or position
           child.children.forEach(function(sub){
             if (sub.isGroup && sub.position.y > 0.9){
-              // This is likely the torso — check for arm children
               sub.children.forEach(function(torsoChild){
                 if (torsoChild.isGroup && Math.abs(torsoChild.position.x) > 0.2){
-                  // Likely an arm — swing it
                   torsoChild.rotation.x = (torsoChild.position.x > 0) ? -armSwing : armSwing;
                 }
               });
@@ -458,14 +467,13 @@
         }
       });
 
-      // Keeper crouch
       if (keeper && p > 0.4){
         keeper.rotation.x = 0.25 * ((p - 0.4) / 0.6);
       }
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  BOWLER DELIVERY (release)
+    //  BOWLER DELIVERY
     // ═══════════════════════════════════════════════════════════
     function animateDelivery(p){
       const e = easeOut(p);
@@ -640,7 +648,7 @@
       bannerEl.id = 'cm-banner';
       bannerEl.style.cssText =
         'position:fixed;top:16%;left:50%;transform:translate(-50%,-30px);z-index:99999;' +
-        'font-family:"Titillium Web",sans-serif;font-weight:900;font-style:italic;' +
+        'font-family:"Titillium Web",Arial,sans-serif;font-weight:900;font-style:italic;' +
         'font-size:clamp(48px,10vw,110px);letter-spacing:6px;text-transform:uppercase;' +
         'opacity:0;transition:opacity .3s ease, transform .5s cubic-bezier(.34,1.56,.64,1);' +
         'pointer-events:none;text-align:center;';
@@ -702,7 +710,6 @@
 
       const elapsed = now - phaseStart;
 
-      // Ball physics + trail
       if (ball.active){
         updateBall(dt);
         if (trail.visible) trailPush(ball.pos);
@@ -713,7 +720,21 @@
 
         case PHASE.IDLE: {
           animateIdle(now);
-          if (elapsed > DURATIONS.idle) setPhase(PHASE.RUNUP);
+          if (elapsed > DURATIONS.idle) setPhase(PHASE.GUARD);
+          break;
+        }
+
+        case PHASE.GUARD: {
+          const p = Math.min(1, elapsed / DURATIONS.guard);
+          animateGuard(p);
+          if (p >= 1) setPhase(PHASE.MARK_RUNUP);
+          break;
+        }
+
+        case PHASE.MARK_RUNUP: {
+          const p = Math.min(1, elapsed / DURATIONS.mark_runup);
+          animateMarkRunup(p);
+          if (p >= 1) setPhase(PHASE.RUNUP);
           break;
         }
 
@@ -735,10 +756,8 @@
         }
 
         case PHASE.INBOUND: {
-          // Wait for either ball contact with bat OR ball past batsman OR timeout
           const ballPastBat = ball.pos.z > striker.position.z + 0.5;
           const batContact = checkBatContact();
-
           if (batContact || ballPastBat || elapsed > DURATIONS.inbound){
             ball.active = false;
             flightBall.visible = false;
@@ -770,29 +789,21 @@
               cameraShake(1.5, 500);
               if (SV.stumpsStriker) SV.stumpsStriker.rotation.x = -0.7;
             } else if (outcome.runs === 6){
-              showBanner('SIX!', '#ff6d00');
-              flash('#ff6d00', 350);
-              cameraShake(2.0, 600);
+              showBanner('SIX!', '#ff6d00'); flash('#ff6d00', 350); cameraShake(2.0, 600);
             } else if (outcome.runs === 4){
-              showBanner('FOUR!', '#22d3ee');
-              flash('#22d3ee', 300);
-              cameraShake(1.2, 400);
+              showBanner('FOUR!', '#22d3ee'); flash('#22d3ee', 300); cameraShake(1.2, 400);
             } else if (outcome.runs > 0){
               showBanner(outcome.runs + ' RUN' + (outcome.runs > 1 ? 'S' : ''), '#00e676');
             }
           }
 
-          // For runs 1-3, start fielder chase
           if (outcome.runs > 0 && outcome.runs < 4 && !phaseData._chaserPicked){
             phaseData._chaserPicked = true;
             pickChaser(ball.pos.x, ball.pos.z);
           }
 
-          // Ball stopped?
           const ballStopped = !ball.active;
           const crossedBoundary = Math.hypot(ball.pos.x, ball.pos.z) > BOUNDARY_R;
-
-          // For 6, wait until ball is fully out of view or timeout
           const ballFlew = outcome.runs === 6 && elapsed > 3500;
 
           if (ballStopped || crossedBoundary || ballFlew){
@@ -859,14 +870,13 @@
     //  KICKOFF
     // ═══════════════════════════════════════════════════════════
     console.log('[Anim] ✅ Advanced engine ready');
-    console.log('[Anim] Trail: cyan on 4, orange on 6, ball flies out of ground on 6');
-
     requestAnimationFrame(tick);
 
     window.StadiumAnim = {
       deliver: function(runs, wicket){
-        if (phase !== PHASE.IDLE && phase !== PHASE.WALK_BACK){
-          console.warn('[Anim] Not idle');
+        if (phase !== PHASE.IDLE && phase !== PHASE.WALK_BACK &&
+            phase !== PHASE.GUARD && phase !== PHASE.MARK_RUNUP){
+          console.warn('[Anim] Not idle — phase=' + phase);
           return;
         }
         if (runs !== undefined){
