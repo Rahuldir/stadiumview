@@ -1,8 +1,8 @@
 /* ══════════════════════════════════════════════════════════════
-   StadiumView — Realistic Broadcast Edition (v3.1)
-   • Per-role model loading
-   • Real-world dimensions (Player 1.8m, Bat 0.96m, Ball 7.2cm, Stumps 71cm)
-   • Flood lights detected from stadium geometry + emissive markers
+   StadiumView — Realistic Broadcast Edition (v3.2)
+   • FrontSide rendering on stadium (no interior walls visible)
+   • 6 flood light pylons with wide beams + visible glow halos
+   • Spotlights use decay=0 so they actually reach the pitch
    • Textured advertising boards around boundary
    • Real cricket fielding formation
    ══════════════════════════════════════════════════════════════ */
@@ -41,7 +41,6 @@
     { role: 'Fine Leg',           x: -15,  y: 0, z:  22,   rotY: Math.PI * 1.15                  }
   ];
 
-  // ─── SCENE ──────────────────────────────────────────────────
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x87b8e0);
   scene.fog = null;
@@ -216,9 +215,22 @@
     if (!model) return;
     stadiumModel = model;
     scaleToMaxDim(model, STADIUM_SIZE);
+
+    // ─── FORCE FRONT-SIDE so we never see interior walls from inside ───
     model.traverse(function(c){
-      if (c.isMesh){ c.castShadow = false; c.receiveShadow = false; }
+      if (c.isMesh){
+        c.castShadow = false;
+        c.receiveShadow = false;
+        if (c.material){
+          const mats = Array.isArray(c.material) ? c.material : [c.material];
+          mats.forEach(function(m){
+            m.side = THREE.FrontSide;
+            m.needsUpdate = true;
+          });
+        }
+      }
     });
+
     bottomToZero(model);
     model.position.set(0, 0, 0);
     scene.add(model);
@@ -234,7 +246,7 @@
   }
 
   // ═══════════════════════════════════════════════════════════
-  //  FLOOD LIGHTS — detection + reduced intensity
+  //  FLOOD LIGHTS — wide beams, no decay, visible glow halos
   // ═══════════════════════════════════════════════════════════
   const floodLights = [];
 
@@ -301,28 +313,47 @@
   }
 
   function attachFloodlight(pos){
+    // Wide warm beam — decay=0 so light actually reaches the pitch
     const spot = new THREE.SpotLight(
-      0xffe9c0, 0.0, 240, Math.PI * 0.16, 0.4, 1.5
+      0xffe9c0,             // warm white
+      0.0,                  // off by default
+      400,                  // max range (metres)
+      Math.PI * 0.22,       // ~40° beam
+      0.5,                  // soft penumbra
+      0.0                   // NO distance falloff
     );
     spot.position.set(pos.x, pos.y, pos.z);
     spot.target.position.set(0, fieldY, 0);
     scene.add(spot);
     scene.add(spot.target);
 
-    const marker = new THREE.Mesh(
-      new THREE.SphereGeometry(1.2, 10, 10),
-      new THREE.MeshBasicMaterial({ color: 0x000000 })
-    );
-    marker.position.set(pos.x, pos.y, pos.z);
-    scene.add(marker);
+    // Visible lamp head at the source
+    const lampMat = new THREE.MeshBasicMaterial({ color: 0x222222 });
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(1.8, 12, 12), lampMat);
+    lamp.position.set(pos.x, pos.y, pos.z);
+    scene.add(lamp);
+
+    // Additive glow halo — makes the lamp visibly "shine"
+    const glowMat = new THREE.MeshBasicMaterial({
+      color: 0xfff4dc,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    const glow = new THREE.Mesh(new THREE.SphereGeometry(6, 16, 16), glowMat);
+    glow.position.copy(lamp.position);
+    scene.add(glow);
 
     const ref = {
       spot: spot,
-      marker: marker,
+      lamp: lamp,
+      glow: glow,
       pos: pos,
       setGlow: function(v){
-        spot.intensity = v * 2.2;
-        marker.material.color.setRGB(v * 1.0, v * 0.9, v * 0.7);
+        spot.intensity = v * 3.0;
+        lampMat.color.setRGB(v, v * 0.95, v * 0.8);
+        glowMat.opacity = v * 0.75;
       }
     };
     ref.setGlow(0);
@@ -335,14 +366,16 @@
     let towers = detectTowers(stadiumModel, fieldY);
 
     if (towers.length < 2){
-      console.warn('[Floodlights] detection failed — using 4 roof-corner lights');
-      const R = 82, H = 48;
-      towers = [
-        { x:  R, y: fieldY + H, z:  R, n: 1 },
-        { x: -R, y: fieldY + H, z:  R, n: 1 },
-        { x:  R, y: fieldY + H, z: -R, n: 1 },
-        { x: -R, y: fieldY + H, z: -R, n: 1 }
+      console.warn('[Floodlights] detection failed — using 6 pylon positions');
+      const H = 55;
+      const positions = [
+        { x:  92, z:  92 }, { x: -92, z:  92 },
+        { x:  92, z: -92 }, { x: -92, z: -92 },
+        { x:  98, z:   0 }, { x: -98, z:   0 }
       ];
+      towers = positions.map(function(c){
+        return { x: c.x, y: fieldY + H, z: c.z, n: 1 };
+      });
     }
 
     if (towers.length > 8){
@@ -351,8 +384,7 @@
     }
 
     towers.forEach(attachFloodlight);
-    console.log('[Floodlights] ' + floodLights.length + ' lights placed' +
-                (towers.length < 2 ? '' : ' (from geometry)'));
+    console.log('[Floodlights] ' + floodLights.length + ' lights placed');
   }
 
   // ═══════════════════════════════════════════════════════════
