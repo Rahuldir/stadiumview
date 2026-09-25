@@ -16,7 +16,7 @@
 
   // ─── REAL-WORLD DIMENSIONS (metres) ─────────────────────────
   const STADIUM_SIZE       = 200;     // overall stadium diameter
-  const PLAYER_HEIGHT      = 1.80;    // average cricketer
+  const PLAYER_HEIGHT      = 3.50;    // debug size — increase for visibility
   const BAT_LENGTH         = 0.96;    // ICC max
   const BALL_DIAMETER      = 0.072;   // cricket ball
   const STUMPS_HEIGHT      = 0.71;    // stump height
