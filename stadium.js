@@ -1,8 +1,7 @@
 /* ══════════════════════════════════════════════════════════════
-   StadiumView — real-world dimensions
+   StadiumView — real-world dimensions (FIXED SkinnedMesh bug)
    Player  1.8m  |  Bat  0.96m  |  Ball  0.072m  |  Stumps  0.71m
    Pitch  20.12m |  Ground  200m diameter
-   Ring markers for far-camera visibility
    ══════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
@@ -15,13 +14,13 @@
   ];
 
   // ─── REAL-WORLD DIMENSIONS (metres) ─────────────────────────
-  const STADIUM_SIZE       = 200;     // overall stadium diameter
-  const PLAYER_HEIGHT      = 3.50;    // debug size — increase for visibility
-  const BAT_LENGTH         = 0.96;    // ICC max
-  const BALL_DIAMETER      = 0.072;   // cricket ball
-  const STUMPS_HEIGHT      = 0.71;    // stump height
-  const PITCH_LENGTH       = 20.12;   // full pitch
-  const BOUNDARY_RADIUS    = 30;      // in-scope boundary
+  const STADIUM_SIZE       = 200;     
+  const PLAYER_HEIGHT      = 1.80;    
+  const BAT_LENGTH         = 0.96;    
+  const BALL_DIAMETER      = 0.072;   
+  const STUMPS_HEIGHT      = 0.71;    
+  const PITCH_LENGTH       = 20.12;   
+  const BOUNDARY_RADIUS    = 30;      
 
   const ROT_STADIUM = { x: 0, y: 0, z: 0 };
 
@@ -91,7 +90,6 @@
         if (model && !model.name) model.name = key;
         loadStatus[key] = { status: 'loaded' };
         updateList();
-        console.log('[StadiumView] ✅ ' + key);
         resolve(model);
       }, function(p){
         if (p.total){
@@ -122,8 +120,6 @@
   }
 
   // ─── HELPERS ─────────────────────────────────────────────────
-  // Scale so the model's HEIGHT (Y dimension) matches target, and
-  // the bottom sits at y = 0
   function scaleToHeight(model, targetHeight){
     model.updateMatrixWorld(true);
     let box = new THREE.Box3().setFromObject(model);
@@ -139,7 +135,6 @@
     return scale;
   }
 
-  // Scale by largest dimension (for stadium)
   function scaleToMaxDim(model, targetMax){
     model.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(model);
@@ -189,14 +184,6 @@
     return { meshCount: meshCount };
   }
 
-  function shuffle(arr){
-    for (let i = arr.length - 1; i > 0; i--){
-      const j = Math.floor(Math.random() * (i + 1));
-      const t = arr[i]; arr[i] = arr[j]; arr[j] = t;
-    }
-    return arr;
-  }
-
   function findFieldLevel(stadiumModel){
     const raycaster = new THREE.Raycaster();
     raycaster.set(new THREE.Vector3(0, 1000, 0), new THREE.Vector3(0, -1, 0));
@@ -205,9 +192,8 @@
     return 0;
   }
 
-  // ─── EQUIPMENT (real dimensions) ─────────────────────────────
+  // ─── EQUIPMENT ───────────────────────────────────────────────
   function makeBat(){
-    // Real bat: 0.96m total, blade ~0.6m, handle ~0.36m
     const g = new THREE.Group();
     const bladeMat = new THREE.MeshStandardMaterial({ color: 0xd4b483, roughness: 0.75 });
     const handleMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.6 });
@@ -221,7 +207,6 @@
   }
 
   function makeBall(){
-    // Real ball: 7.2cm diameter = 0.036m radius
     const r = BALL_DIAMETER / 2;
     const mat = new THREE.MeshStandardMaterial({
       color: 0x991b1b,
@@ -238,7 +223,6 @@
   }
 
   function makeStumps(){
-    // Real stumps: 0.71m tall, 0.038m wide, 3 of them
     const g = new THREE.Group();
     const mat = new THREE.MeshStandardMaterial({ color: 0xefe2c0, roughness: 0.7 });
     const bailMat = new THREE.MeshStandardMaterial({ color: 0xd4b483, roughness: 0.7 });
@@ -262,8 +246,6 @@
   // ─── GROUND RING MARKERS ─────────────────────────────────────
   function makeGroundMarker(x, z, color, fieldY){
     const group = new THREE.Group();
-
-    // Flat ring at feet
     const ring = new THREE.Mesh(
       new THREE.RingGeometry(0.9, 1.3, 24),
       new THREE.MeshBasicMaterial({
@@ -278,7 +260,6 @@
     ring.position.y = fieldY + 0.05;
     group.add(ring);
 
-    // Vertical beam so it's visible from any angle
     const pole = new THREE.Mesh(
       new THREE.CylinderGeometry(0.05, 0.05, 3.0, 8),
       new THREE.MeshBasicMaterial({
@@ -326,32 +307,28 @@
   const playerRefs = {};
   const accessoryRefs = {};
 
-  function placePlayers(models){
-    const valid = models.filter(function(m){ return m; });
-    if (valid.length === 0){ console.warn('[Players] none loaded'); return; }
-
-    shuffle(valid);
-    console.log('[Players] ' + valid.length + ' models → ' + FIELD_POSITIONS.length + ' roles');
-
-    for (let i = 0; i < FIELD_POSITIONS.length; i++){
-      const src = valid[i % valid.length];
-      const pos = FIELD_POSITIONS[i];
+  function placePlayers(playersData){
+    let placedCount = 0;
+    
+    playersData.forEach(function(pd){
+      const src = pd.model;
+      const pos = pd.pos;
+      if (!src) return;
 
       const group = new THREE.Group();
       group.name = 'PLAYER_' + pos.role.replace(/[^a-z0-9]/gi, '_');
 
-      const pm = src.clone(true);
+      // By using the fresh scene instance instead of .clone(), SkinnedMeshes won't break
+      const pm = src;
       pm.position.set(0, 0, 0);
       pm.rotation.set(0, 0, 0);
       pm.scale.set(1, 1, 1);
 
-      // Scale to real human height (1.8m)
       const scale = scaleToHeight(pm, PLAYER_HEIGHT);
-      const vis = forceVisible(pm);
+      forceVisible(pm);
 
       group.add(pm);
 
-      // Real-sized bat in hands
       if (pos.hasBat){
         const bat = makeBat();
         bat.position.set(-0.35, 0.95, 0.25);
@@ -362,7 +339,6 @@
         accessoryRefs[pos.role].bat = bat;
       }
 
-      // Real-sized ball in bowler's hand
       if (pos.hasBall){
         const ball = makeBall();
         ball.position.set(0.35, 1.35, 0.20);
@@ -370,6 +346,9 @@
         accessoryRefs[pos.role] = accessoryRefs[pos.role] || {};
         accessoryRefs[pos.role].ball = ball;
       }
+
+      // Prevents Three.js from accidentally hiding players/bats if the bounding box calculates incorrectly
+      group.traverse(function(c){ c.frustumCulled = false; });
 
       group.rotation.y = pos.rotY || 0;
       group.position.x = pos.x;
@@ -379,28 +358,35 @@
       scene.add(group);
       playerRefs[pos.role] = group;
 
-      // Ring marker so they're visible from far away
       makeGroundMarker(pos.x, pos.z, pos.ringColor, fieldY);
+      placedCount++;
+    });
 
-      console.log('[Player ' + pos.role + '] height=1.80m scale=' + scale.toFixed(3) + ' meshes=' + vis.meshCount);
-    }
-    console.log('[Players] 15 placed with ring markers');
+    console.log('[Players] ' + placedCount + ' loaded directly and placed. (SkinnedMesh bypass active)');
   }
 
   function setLoaderProgress(loaded, total){
     const sub = document.getElementById('loaderSub');
     const txt = document.getElementById('loaderText');
-    if (sub) sub.textContent = loaded + ' / ' + total + ' models';
+    if (sub) sub.textContent = loaded + ' / ' + total + ' loaded';
     if (txt && loaded === total) txt.textContent = 'Ready';
   }
 
   // ─── BOOT ────────────────────────────────────────────────────
   async function boot(){
     const tasks = [
-      { key: 'stadium', url: STADIUM_FILE }
-    ].concat(PLAYER_FILES.map(function(url, i){
-      return { key: 'p' + (i + 1), url: url };
-    }));
+      { key: 'stadium', url: STADIUM_FILE, type: 'stadium' }
+    ];
+    
+    // Create an independent loading task for EVERY position to avoid .clone() entirely
+    FIELD_POSITIONS.forEach(function(pos, i){
+      tasks.push({
+        key: pos.role.replace(/[^a-z0-9]/gi, ''), 
+        url: PLAYER_FILES[i % PLAYER_FILES.length],
+        type: 'player',
+        pos: pos
+      });
+    });
 
     let done = 0;
     const total = tasks.length;
@@ -409,18 +395,13 @@
       return loadOne(t.key, t.url).then(function(m){
         done++;
         setLoaderProgress(done, total);
-        return { key: t.key, model: m };
+        return { type: t.type, model: m, pos: t.pos };
       });
     }));
 
-    const pick = function(key){
-      const r = results.find(function(x){ return x.key === key; });
-      return r ? r.model : null;
-    };
+    const stadiumResult = results.find(function(r){ return r.type === 'stadium'; });
+    placeStadium(stadiumResult ? stadiumResult.model : null);
 
-    placeStadium(pick('stadium'));
-
-    // Stumps at both ends — real 0.71m tall
     const stumpsA = makeStumps();
     stumpsA.position.set(0, fieldY, 10);
     scene.add(stumpsA);
@@ -493,13 +474,9 @@
       scene.add(g);
     })(-55, 0, Math.PI / 2);
 
-    // Players
-    const playerModels = PLAYER_FILES.map(function(_, i){
-      return pick('p' + (i + 1));
-    }).filter(function(m){ return m; });
-    playerModels.forEach(function(m, i){ if (m && !m.name) m.name = 'p' + (i + 1); });
-
-    placePlayers(playerModels);
+    // Feed the independently loaded models into the placement function
+    const playerData = results.filter(function(r){ return r.type === 'player'; });
+    placePlayers(playerData);
 
     setTimeout(function(){
       const el = document.getElementById('loader');
