@@ -1,187 +1,232 @@
 /* ══════════════════════════════════════════════════════════════
-   Camera controls + view presets + time of day
+   StadiumView — Camera controls + Auto Director
+   • __applyView / __setTime exposed BEFORE init (no race)
+   • All 14 views available
+   • Targets computed at click time → safe if fieldY changes
    ══════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
 
-  console.log('%c[controls.js] start', 'color:#00e676;font-weight:bold');
+  console.log('%c[controls.js] IIFE started', 'color:#00e676;font-weight:bold');
 
-  // Published IMMEDIATELY so menu can call them right away
-  window.__applyView = function(name){ console.warn('[controls] not ready yet:', name); };
-  window.__setTime   = function(mode){ console.warn('[controls] not ready yet:', mode); };
+  // ─── Global state — published immediately so menu clicks
+  //     never hit an undefined window.__applyView ──────────────
+  let SV = null;
+  let camera = null, renderer = null, scene = null;
+  const _target = new THREE.Vector3(0, 10, 0);
+  let _theta = Math.PI * 0.25;
+  let _phi   = Math.PI * 0.32;
+  let _radius = 160;
 
-  let camera, scene, renderer, SV;
-  let target, theta, phi, radius;
-  const PHI_MIN = 0.10, PHI_MAX = Math.PI * 0.48;
-  const R_MIN = 3, R_MAX = 180;
+  const PHI_MIN = 0.10;
+  const PHI_MAX = Math.PI * 0.48;
+  const R_MIN   = 3;
+  const R_MAX   = 180;
 
-  function F(){ return (SV && SV.fieldY && SV.fieldY > 1) ? SV.fieldY : 7.19; }
+  function currentFieldY(){
+    const f = SV && SV.fieldY;
+    return (typeof f === 'number' && f > 1) ? f : 7.19;
+  }
+
   function clampPhi(v){ return Math.max(PHI_MIN, Math.min(PHI_MAX, v)); }
-  function clampR(v){ return Math.max(R_MIN, Math.min(R_MAX, v)); }
+  function clampR(v){   return Math.max(R_MIN,   Math.min(R_MAX,   v)); }
 
   function updateCamera(){
     if (!camera) return;
-    phi = clampPhi(phi);
-    radius = clampR(radius);
-    const floorY = F() + 0.5;
-    const x = target.x + radius * Math.sin(phi) * Math.cos(theta);
-    let   y = target.y + radius * Math.cos(phi);
-    const z = target.z + radius * Math.sin(phi) * Math.sin(theta);
+    _phi    = clampPhi(_phi);
+    _radius = clampR(_radius);
+    const F = currentFieldY();
+    const floorY = F + 0.5;
+
+    const x = _target.x + _radius * Math.sin(_phi) * Math.cos(_theta);
+    let   y = _target.y + _radius * Math.cos(_phi);
+    const z = _target.z + _radius * Math.sin(_phi) * Math.sin(_theta);
     if (y < floorY) y = floorY;
+
     camera.position.set(x, y, z);
-    camera.lookAt(target);
+    camera.lookAt(_target);
   }
 
+  // ─── View definitions — relative to grass level ─────────
   const VIEW_DEFS = {
-    overview: { y: 10, z: 0,   th: Math.PI * 0.25, ph: Math.PI * 0.30, r: 160 },
-    tv:       { y: 4,  z: 0,   th: 0,              ph: Math.PI * 0.42, r: 60  },
-    tvlong:   { y: 4,  z: 0,   th: 0,              ph: Math.PI * 0.42, r: 90  },
-    tvhigh:   { y: 4,  z: 0,   th: 0,              ph: Math.PI * 0.28, r: 65  },
-    bowler:   { y: 2,  z: 8.6, th: -Math.PI * 0.5, ph: Math.PI * 0.42, r: 32  },
-    batsman:  { y: 2,  z: 8.6, th: Math.PI * 0.5,  ph: Math.PI * 0.42, r: 12  },
-    closeup:  { y: 1.4,z: 8.6, th: -Math.PI * 0.35,ph: Math.PI * 0.42, r: 4.5 },
-    stumps:   { y: 1.0,z: 8.6, th: Math.PI * 0.5,  ph: Math.PI * 0.42, r: 3   },
-    sideOn:   { y: 2,  z: 0,   th: 0,              ph: Math.PI * 0.46, r: 26  },
-    pitch:    { y: 1,  z: 0,   th: 0,              ph: Math.PI * 0.42, r: 20  },
-    aerial:   { y: 0,  z: 0,   th: Math.PI * 0.25, ph: 0.14,           r: 175 },
-    spider:   { y: 6,  z: 0,   th: Math.PI * 0.75, ph: Math.PI * 0.35, r: 42  },
-    drone:    { y: 4,  z: 5,   th: Math.PI * 1.2,  ph: Math.PI * 0.35, r: 65  }
+    overview: { x: 0,    y: 10,  z: 0,   th: Math.PI * 0.25,  ph: Math.PI * 0.30, r: 160 },
+    tv:       { x: 0,    y: 4,   z: 0,   th: 0,               ph: Math.PI * 0.42, r: 60  },
+    tvlong:   { x: 0,    y: 4,   z: 0,   th: 0,               ph: Math.PI * 0.42, r: 90  },
+    tvhigh:   { x: 0,    y: 4,   z: 0,   th: 0,               ph: Math.PI * 0.28, r: 65  },
+    bowler:   { x: 0,    y: 2,   z: 8.6, th: -Math.PI * 0.50, ph: Math.PI * 0.42, r: 32  },
+    batsman:  { x: 0.4,  y: 2,   z: 8.6, th: Math.PI * 0.50,  ph: Math.PI * 0.42, r: 12  },
+    batting:  { x: 0.4,  y: 2,   z: 8.6, th: Math.PI * 0.50,  ph: Math.PI * 0.42, r: 12  },
+    closeup:  { x: 0.4,  y: 1.4, z: 8.6, th: -Math.PI * 0.35, ph: Math.PI * 0.42, r: 4.5 },
+    stumps:   { x: 0.4,  y: 1.0, z: 8.6, th: Math.PI * 0.50,  ph: Math.PI * 0.42, r: 3   },
+    sideOn:   { x: 0,    y: 2,   z: 0,   th: 0,               ph: Math.PI * 0.46, r: 26  },
+    pitch:    { x: 0,    y: 1,   z: 0,   th: 0,               ph: Math.PI * 0.42, r: 20  },
+    aerial:   { x: 0,    y: 0,   z: 0,   th: Math.PI * 0.25,  ph: 0.14,           r: 175 },
+    spider:   { x: 0,    y: 6,   z: 0,   th: Math.PI * 0.75,  ph: Math.PI * 0.35, r: 42  },
+    drone:    { x: 0,    y: 4,   z: 5,   th: Math.PI * 1.2,   ph: Math.PI * 0.35, r: 65  }
   };
 
   function smoothTo(nT, nTh, nP, nR, dur){
-    const sT = target.clone();
-    const sTh = theta, sP = phi, sR = radius;
+    const sT = _target.clone();
+    const sTh = _theta, sP = _phi, sR = _radius;
     const tP = clampPhi(nP), tR = clampR(nR);
     const t0 = performance.now();
     dur = dur || 900;
+
     (function step(){
       const t = Math.min(1, (performance.now() - t0) / dur);
       const e = t < 0.5 ? 2*t*t : 1 - Math.pow(-2*t+2, 2)/2;
-      target.lerpVectors(sT, nT, e);
-      theta  = sTh + (nTh - sTh) * e;
-      phi    = sP  + (tP - sP) * e;
-      radius = sR  + (tR - sR) * e;
+      _target.lerpVectors(sT, nT, e);
+      _theta  = sTh + (nTh - sTh) * e;
+      _phi    = sP  + (tP  - sP)  * e;
+      _radius = sR  + (tR  - sR)  * e;
       updateCamera();
       if (t < 1) requestAnimationFrame(step);
     })();
   }
 
-  // ─── Boot ────────────────────────────────────────────
-  const wait = setInterval(() => {
+  // ─── Public API — set NOW so clicks never miss ──────────
+  window.__applyView = function(name){
+    const view = VIEW_DEFS[name];
+    if (!view){
+      console.warn('[Camera] unknown view: ' + name);
+      return false;
+    }
+    const F = currentFieldY();
+    const targetPos = new THREE.Vector3(view.x, F + view.y, view.z);
+    smoothTo(targetPos, view.th, view.ph, view.r, 900);
+
+    document.querySelectorAll('#viewRow button').forEach(function(b){
+      b.classList.toggle('on', b.getAttribute('data-view') === name);
+    });
+    console.log('[Camera] → ' + name);
+    return true;
+  };
+
+  window.__setTime = function(mode){
+    if (!scene) return;
+    const sun     = SV.sun     || null;
+    const hemi    = SV.hemi    || null;
+    const ambient = SV.ambient || null;
+
+    const bgHex = mode === 'day'    ? 0x87b8e0
+                : mode === 'sunset' ? 0x4a1f16
+                :                     0x01040a;
+
+    if (scene.background && scene.background.setHex) scene.background.setHex(bgHex);
+    if (scene.fog && scene.fog.color && scene.fog.color.setHex) scene.fog.color.setHex(bgHex);
+
+    if (mode === 'day'){
+      if (ambient) ambient.intensity = 0.8;
+      if (hemi)    hemi.intensity    = 0.6;
+      if (sun){ sun.intensity = 1.5; sun.color.setHex(0xffffff); sun.position.set(80, 400, 80); }
+      if (SV.setFloodlights) SV.setFloodlights(0);
+      if (renderer) renderer.toneMappingExposure = 1.0;
+    } else if (mode === 'sunset'){
+      if (ambient) ambient.intensity = 0.4;
+      if (hemi)    hemi.intensity    = 0.35;
+      if (sun){ sun.intensity = 0.9; sun.color.setHex(0xff8855); sun.position.set(300, 60, -200); }
+      if (SV.setFloodlights) SV.setFloodlights(0.4);
+      if (renderer) renderer.toneMappingExposure = 0.95;
+    } else {
+      if (ambient) ambient.intensity = 0.05;
+      if (hemi)    hemi.intensity    = 0.08;
+      if (sun)     sun.intensity     = 0;
+      if (SV.setFloodlights) SV.setFloodlights(1);
+      if (renderer) renderer.toneMappingExposure = 0.95;
+    }
+
+    document.querySelectorAll('#timeRow button').forEach(function(b){
+      b.classList.toggle('on', b.getAttribute('data-time') === mode);
+    });
+    console.log('[Time] ' + mode);
+  };
+
+  // ─── Wait for StadiumView then wire input listeners ─────
+  const wait = setInterval(function(){
     if (!window.StadiumView || !window.StadiumView.scene) return;
     clearInterval(wait);
     setTimeout(setup, 200);
   }, 100);
 
   function setup(){
-    SV = window.StadiumView;
-    scene = SV.scene;
-    camera = SV.camera;
-    renderer = SV.renderer;
+    try {
+      SV       = window.StadiumView;
+      scene    = SV.scene;
+      camera   = SV.camera;
+      renderer = SV.renderer;
 
-    const Fv = F();
-    target = new THREE.Vector3(0, Fv + 10, 0);
-    theta = Math.PI * 0.25;
-    phi = Math.PI * 0.32;
-    radius = 160;
-    updateCamera();
-
-    const canvas = renderer.domElement;
-
-    // Drag
-    let drag = false, lx = 0, ly = 0;
-    canvas.addEventListener('pointerdown', e => { drag = true; lx = e.clientX; ly = e.clientY; });
-    canvas.addEventListener('pointermove', e => {
-      if (!drag) return;
-      theta -= (e.clientX - lx) * 0.005;
-      phi   -= (e.clientY - ly) * 0.005;
-      lx = e.clientX; ly = e.clientY;
-      updateCamera();
-    });
-    canvas.addEventListener('pointerup',    () => drag = false);
-    canvas.addEventListener('pointerleave', () => drag = false);
-    canvas.addEventListener('pointercancel',() => drag = false);
-
-    // Wheel
-    canvas.addEventListener('wheel', e => {
-      e.preventDefault();
-      radius = clampR(radius + e.deltaY * 0.5);
-      updateCamera();
-    }, { passive: false });
-
-    // Pinch
-    let pinch = 0;
-    canvas.addEventListener('touchstart', e => {
-      if (e.touches.length === 2){
-        const dx = e.touches[0].clientX - e.touches[1].clientX;
-        const dy = e.touches[0].clientY - e.touches[1].clientY;
-        pinch = Math.hypot(dx, dy);
+      if (!camera || !renderer){
+        console.warn('[Camera] missing camera/renderer — input disabled');
+        return;
       }
-    }, { passive: true });
-    canvas.addEventListener('touchmove', e => {
-      if (e.touches.length === 2 && pinch > 0){
-        const dx = e.touches[0].clientX - e.touches[1].clientX;
-        const dy = e.touches[0].clientY - e.touches[1].clientY;
-        const d = Math.hypot(dx, dy);
-        radius = clampR(radius - (d - pinch) * 1.1);
-        pinch = d;
+
+      const F = currentFieldY();
+      _target.set(0, F + 10, 0);
+      updateCamera();
+
+      const canvas = renderer.domElement;
+
+      // ─── Drag ─────────────────────────────────────────
+      let dragging = false, lastX = 0, lastY = 0;
+      canvas.addEventListener('pointerdown', function(e){
+        dragging = true; lastX = e.clientX; lastY = e.clientY;
+      });
+      canvas.addEventListener('pointermove', function(e){
+        if (!dragging) return;
+        _theta -= (e.clientX - lastX) * 0.005;
+        _phi   -= (e.clientY - lastY) * 0.005;
+        lastX = e.clientX; lastY = e.clientY;
         updateCamera();
-      }
-    }, { passive: true });
-    canvas.addEventListener('touchend', () => pinch = 0);
+      });
+      canvas.addEventListener('pointerup',    function(){ dragging = false; });
+      canvas.addEventListener('pointerleave', function(){ dragging = false; });
+      canvas.addEventListener('pointercancel',function(){ dragging = false; });
 
-    // Space toggles Director
-    document.addEventListener('keydown', e => {
-      if (e.code === 'Space'){
+      // ─── Wheel ────────────────────────────────────────
+      canvas.addEventListener('wheel', function(e){
         e.preventDefault();
-        const b = document.getElementById('btn-auto');
-        if (b) b.click();
-      }
-    });
+        _radius = clampR(_radius + e.deltaY * 0.5);
+        updateCamera();
+      }, { passive: false });
 
-    // ─── Publish API ─────────────────────────────────
-    window.__applyView = function(name){
-      const v = VIEW_DEFS[name];
-      if (!v){ console.warn('[controls] unknown view', name); return; }
-      const Fv = F();
-      const t = new THREE.Vector3(0, Fv + v.y, v.z);
-      smoothTo(t, v.th, v.ph, v.r, 900);
-      console.log('[camera] →', name);
-    };
+      // ─── Pinch ────────────────────────────────────────
+      let pinchDist = 0;
+      canvas.addEventListener('touchstart', function(e){
+        if (e.touches.length === 2){
+          const dx = e.touches[0].clientX - e.touches[1].clientX;
+          const dy = e.touches[0].clientY - e.touches[1].clientY;
+          pinchDist = Math.hypot(dx, dy);
+        }
+      }, { passive: true });
+      canvas.addEventListener('touchmove', function(e){
+        if (e.touches.length === 2 && pinchDist > 0){
+          const dx = e.touches[0].clientX - e.touches[1].clientX;
+          const dy = e.touches[0].clientY - e.touches[1].clientY;
+          const dist = Math.hypot(dx, dy);
+          _radius = clampR(_radius - (dist - pinchDist) * 1.1);
+          pinchDist = dist;
+          updateCamera();
+        }
+      }, { passive: true });
+      canvas.addEventListener('touchend', function(){ pinchDist = 0; });
 
-    window.__setTime = function(mode){
-      const Fv = F();
-      const bg = mode === 'day' ? 0x87b8e0
-               : mode === 'sunset' ? 0x4a1f16
-               : 0x01040a;
-      if (scene.background && scene.background.setHex) scene.background.setHex(bg);
+      // ─── Space toggles Director ────────────────────────
+      document.addEventListener('keydown', function(e){
+        if (e.code === 'Space'){
+          e.preventDefault();
+          const b = document.getElementById('btn-auto');
+          if (b) b.click();
+        }
+      });
 
-      if (mode === 'day'){
-        if (SV.ambient) SV.ambient.intensity = 0.85;
-        if (SV.hemi)    SV.hemi.intensity    = 0.55;
-        if (SV.sun){ SV.sun.intensity = 1.4; SV.sun.color.setHex(0xffffff); }
-        if (SV.setFloodlights) SV.setFloodlights(0);
-        renderer.toneMappingExposure = 1.0;
-      } else if (mode === 'sunset'){
-        if (SV.ambient) SV.ambient.intensity = 0.4;
-        if (SV.hemi)    SV.hemi.intensity    = 0.3;
-        if (SV.sun){ SV.sun.intensity = 0.85; SV.sun.color.setHex(0xff8855); }
-        if (SV.setFloodlights) SV.setFloodlights(0.4);
-        renderer.toneMappingExposure = 0.95;
-      } else {
-        if (SV.ambient) SV.ambient.intensity = 0.03;
-        if (SV.hemi)    SV.hemi.intensity    = 0.05;
-        if (SV.sun)     SV.sun.intensity     = 0;
-        if (SV.setFloodlights) SV.setFloodlights(1);
-        renderer.toneMappingExposure = 0.85;
-      }
-      console.log('[time]', mode);
-    };
+      // ─── Initial view ─────────────────────────────────
+      window.__applyView('tv');
 
-    // Initial view
-    window.__applyView('tv');
-
-    console.log('[controls.js] ready · views=' + Object.keys(VIEW_DEFS).length +
-                ' · fieldY=' + Fv.toFixed(2));
+      console.log('[StadiumView] ✅ Camera ready · fieldY=' + F.toFixed(2) +
+                  ' · views=' + Object.keys(VIEW_DEFS).length +
+                  ' · floor y=' + (F + 0.5).toFixed(2));
+    } catch (err) {
+      console.error('[Camera] setup failed:', err);
+    }
   }
 })();
