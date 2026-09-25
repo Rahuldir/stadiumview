@@ -1,47 +1,213 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<meta name="theme-color" content="#050a12">
-<title>StadiumView</title>
-<link rel="icon" href="/favicon.ico">
-<link rel="preconnect" href="https://cdnjs.cloudflare.com">
-<link rel="preconnect" href="https://cdn.jsdelivr.net">
-<link rel="stylesheet" href="styles.css">
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>CRICMAX — StadiumView</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    overflow: hidden; background: #020713;
+    font-family: 'Titillium Web', Arial, sans-serif;
+    color: #fff;
+    -webkit-font-smoothing: antialiased;
+  }
+  canvas { display: block; }
+
+  /* ─── Loader ──────────────────────────────────────────── */
+  #loader {
+    position: fixed; inset: 0; z-index: 9999;
+    background: radial-gradient(circle at 50% 40%, #0a1a2e 0%, #020713 70%);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    transition: opacity .6s ease;
+  }
+  #loader.hide { opacity: 0; pointer-events: none; }
+  #loader .logo {
+    font-size: 64px; font-weight: 900; font-style: italic;
+    letter-spacing: 6px; color: #00e676;
+    text-shadow: 0 0 40px rgba(0,230,118,.6);
+    margin-bottom: 8px;
+  }
+  #loader .tag {
+    font-size: 13px; letter-spacing: 4px;
+    color: #7a8590; text-transform: uppercase;
+    margin-bottom: 40px;
+  }
+  #loaderText {
+    font-size: 22px; font-weight: 700;
+    letter-spacing: 2px; margin-bottom: 6px;
+  }
+  #loaderSub {
+    font-size: 12px; letter-spacing: 3px;
+    color: #7a8590; text-transform: uppercase;
+  }
+  .bar {
+    width: 240px; height: 3px; background: rgba(255,255,255,.08);
+    margin-top: 22px; border-radius: 2px; overflow: hidden;
+  }
+  .bar > div {
+    height: 100%; width: 40%;
+    background: linear-gradient(90deg, transparent, #00e676, transparent);
+    animation: scan 1.4s linear infinite;
+  }
+  @keyframes scan {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(300%); }
+  }
+
+  /* ─── Model list (top-left) ───────────────────────────── */
+  #modelListPanel {
+    position: fixed; top: 16px; left: 16px; z-index: 100;
+    background: rgba(6,12,24,.72);
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 10px;
+    padding: 10px 14px; min-width: 180px;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  #modelListPanel .title {
+    font-size: 10px; letter-spacing: 3px; text-transform: uppercase;
+    color: #7a8590; margin-bottom: 8px;
+  }
+  #modelList { font-size: 12px; line-height: 1.7; }
+  #modelList .row { color: #cfd6dd; }
+  #modelList .row.ok   { color: #00e676; }
+  #modelList .row.fail { color: #ef4444; }
+  #modelList .row.wait { color: #fbbf24; }
+
+  /* ─── FPS counter (top-right) ─────────────────────────── */
+  #fps {
+    position: fixed; top: 16px; right: 16px; z-index: 100;
+    background: rgba(6,12,24,.72);
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 12px; letter-spacing: 2px; color: #00e676;
+    font-variant-numeric: tabular-nums;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+
+  /* ─── Controls bar (bottom-center) ────────────────────── */
+  #controls {
+    position: fixed; left: 50%; bottom: 20px;
+    transform: translateX(-50%); z-index: 200;
+    display: flex; flex-wrap: wrap;
+    align-items: center; justify-content: center;
+    gap: 6px;
+    padding: 10px 14px;
+    background: rgba(6,12,24,.82);
+    border: 1px solid rgba(255,255,255,.1);
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.6);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    max-width: calc(100vw - 32px);
+  }
+  #controls button {
+    background: rgba(255,255,255,.06);
+    border: 1px solid rgba(255,255,255,.08);
+    color: #cfd6dd;
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    padding: 8px 12px;
+    border-radius: 7px;
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: all .15s ease;
+    white-space: nowrap;
+  }
+  #controls button:hover {
+    background: rgba(255,255,255,.12);
+    color: #fff;
+    border-color: rgba(255,255,255,.18);
+  }
+  #controls button.on {
+    background: rgba(0,230,118,.18);
+    color: #00e676;
+    border-color: rgba(0,230,118,.5);
+    box-shadow: 0 0 14px rgba(0,230,118,.35);
+  }
+  #btn-auto {
+    background: rgba(34,211,238,.12) !important;
+    color: #22d3ee !important;
+    border-color: rgba(34,211,238,.35) !important;
+  }
+  #btn-auto.on {
+    background: rgba(239,68,68,.18) !important;
+    color: #ef4444 !important;
+    border-color: rgba(239,68,68,.5) !important;
+  }
+  #controls button[data-time] { font-size: 14px; padding: 6px 10px; }
+
+  @media (max-width: 640px) {
+    #controls button { font-size: 9px; padding: 6px 8px; letter-spacing: 1px; }
+    #loader .logo { font-size: 42px; }
+    #modelListPanel { min-width: 140px; padding: 8px 10px; }
+    #modelList { font-size: 11px; }
+  }
+</style>
 </head>
 <body>
 
+<!-- ═══════════════════════════════════════════════════════════
+     LOADER OVERLAY
+     ═══════════════════════════════════════════════════════════ -->
 <div id="loader">
-  <div class="spinner"></div>
-  <div class="loader-text" id="loaderText">Loading stadium…</div>
-  <div class="loader-sub" id="loaderSub">0%</div>
+  <div class="logo">CRICMAX</div>
+  <div class="tag">StadiumView · Match Viewer</div>
+  <div id="loaderText">Loading</div>
+  <div id="loaderSub">0 / 0 models</div>
+  <div class="bar"><div></div></div>
 </div>
 
-<div id="hud">
-  <div class="hud-title">STADIUMVIEW</div>
-  <div class="hud-hint">Drag to orbit · scroll to zoom</div>
-  <div class="model-list" id="modelList"></div>
+<!-- ═══════════════════════════════════════════════════════════
+     MODEL STATUS PANEL
+     ═══════════════════════════════════════════════════════════ -->
+<div id="modelListPanel">
+  <div class="title">StadiumView</div>
+  <div id="modelList"></div>
 </div>
 
-<div id="fps">-- FPS</div>
+<!-- ═══════════════════════════════════════════════════════════
+     FPS
+     ═══════════════════════════════════════════════════════════ -->
+<div id="fps">— FPS</div>
 
+<!-- ═══════════════════════════════════════════════════════════
+     CONTROLS
+     ═══════════════════════════════════════════════════════════ -->
 <div id="controls">
-  <button data-view="overview" class="on">Overview</button>
-  <button data-view="pitch">Pitch</button>
-  <button data-view="batting">Batting End</button>
-  <button data-view="aerial">Aerial</button>
-  <span class="divider"></span>
+  <button data-view="overview">Overview</button>
+  <button data-view="tv">TV Broadcast</button>
+  <button data-view="bowler">Behind Bowler</button>
+  <button data-view="closeup">Striker Close-Up</button>
+  <button data-view="sideOn">Side On</button>
   <button data-time="day" class="on">☀️</button>
   <button data-time="sunset">🌇</button>
   <button data-time="night">🌙</button>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script> 
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/DRACOLoader.js"></script>
+<!-- ═══════════════════════════════════════════════════════════
+     THREE.JS + LOADERS
+     ═══════════════════════════════════════════════════════════ -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/DRACOLoader.js"></script>
+
+<!-- ═══════════════════════════════════════════════════════════
+     APP SCRIPTS  (order matters)
+       1. stadium.js     — builds scene, players, floods, boards
+       2. controls.js    — camera + auto-director + time-of-day
+       3. anim.js        — ball physics + player animations
+     ═══════════════════════════════════════════════════════════ -->
 <script src="stadium.js"></script>
 <script src="controls.js"></script>
+<script src="anim.js"></script>
 
 </body>
 </html>
