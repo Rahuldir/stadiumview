@@ -1,5 +1,5 @@
 /* ══════════════════════════════════════════════════════════════
-   StadiumView — with debug markers to diagnose missing players
+   StadiumView — with player debug + replay screen fixes
    ══════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
@@ -14,8 +14,9 @@
   const STADIUM_SIZE = 200;
   const PLAYER_SIZE  = 1.9;
 
-  // Debug: draws a red marker at every player position
-  const DEBUG_MARKERS = true;   // ← set to false once you see players
+  // Debug: fallback capsule will show where each player is
+  const DEBUG_CAPSULES = true;    // ← shows orange capsules if models don't render
+  const DEBUG_MARKERS  = false;   // ← pink spheres at feet (can turn on if needed)
 
   const ROT_STADIUM = { x: 0, y: 0, z: 0 };
 
@@ -136,21 +137,34 @@
     model.position.y -= nb.min.y;
   }
 
-  function enableMaterials(obj){
+  /* Aggressive: force EVERYTHING visible with normal materials */
+  function forceVisible(obj){
+    let meshCount = 0, transparentCount = 0;
     obj.traverse(function(c){
-      if (c.isMesh && c.material){
-        const mats = Array.isArray(c.material) ? c.material : [c.material];
-        mats.forEach(function(m){
-          if (m.emissive) m.emissive.setHex(0x000000);
-          if (typeof m.roughness === 'number') m.roughness = 0.85;
-          if (typeof m.metalness === 'number') m.metalness = 0;
-          m.side = THREE.DoubleSide;
-          m.transparent = false;
-          m.opacity = 1;
-          m.needsUpdate = true;
-        });
+      c.visible = true;
+      c.frustumCulled = false;
+      if (c.isMesh){
+        meshCount++;
+        if (c.material){
+          const mats = Array.isArray(c.material) ? c.material : [c.material];
+          mats.forEach(function(m){
+            if (m.transparent) transparentCount++;
+            m.transparent = false;
+            m.opacity = 1;
+            m.alphaTest = 0;
+            if (m.depthWrite === false) m.depthWrite = true;
+            if (m.emissive) m.emissive.setHex(0x000000);
+            if (typeof m.roughness === 'number') m.roughness = 0.85;
+            if (typeof m.metalness === 'number') m.metalness = 0;
+            m.side = THREE.DoubleSide;
+            m.needsUpdate = true;
+          });
+        }
+        c.castShadow = false;
+        c.receiveShadow = false;
       }
     });
+    return { meshCount: meshCount, transparentCount: transparentCount };
   }
 
   function shuffle(arr){
@@ -169,9 +183,7 @@
     return 0;
   }
 
-  /* ═══════════════════════════════════════════════════════════
-     PROCEDURAL EQUIPMENT
-     ═══════════════════════════════════════════════════════════ */
+  // ─── PROCEDURAL EQUIPMENT ────────────────────────────────────
   function makeBat(){
     const g = new THREE.Group();
     const bladeMat = new THREE.MeshStandardMaterial({ color: 0xd4b483, roughness: 0.75 });
@@ -214,68 +226,21 @@
   }
 
   /* ═══════════════════════════════════════════════════════════
-     SIGHT SCREEN — beyond the boundary, thin frame
-     ═══════════════════════════════════════════════════════════ */
-  function buildSightScreen(zPos, fieldY){
-    const W = 22, H = 8, D = 0.6;
-
-    const group = new THREE.Group();
-
-    // Main white panel
-    const panel = new THREE.Mesh(
-      new THREE.BoxGeometry(W, H, D),
-      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95 })
-    );
-    panel.position.y = H / 2;
-    group.add(panel);
-
-    // Thin black outline (thin frame, not chunky)
-    const frameMat = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.7 });
-    // Top bar
-    const topBar = new THREE.Mesh(new THREE.BoxGeometry(W + 0.4, 0.25, D + 0.1), frameMat);
-    topBar.position.y = H + 0.12;
-    group.add(topBar);
-    // Bottom bar
-    const botBar = new THREE.Mesh(new THREE.BoxGeometry(W + 0.4, 0.25, D + 0.1), frameMat);
-    botBar.position.y = -0.12;
-    group.add(botBar);
-    // Left/right thin posts
-    [-W/2 - 0.2, W/2 + 0.2].forEach(function(x){
-      const side = new THREE.Mesh(new THREE.BoxGeometry(0.25, H + 0.4, D + 0.1), frameMat);
-      side.position.set(x, H / 2, 0);
-      group.add(side);
-    });
-
-    // Support poles going into the ground
-    [-W/2 + 1.5, W/2 - 1.5].forEach(function(x){
-      const pole = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.15, 0.15, H + 1, 8),
-        frameMat
-      );
-      pole.position.set(x, (H + 1) / 2 - 0.5, 0);
-      group.add(pole);
-    });
-
-    group.position.set(0, fieldY, zPos);
-    scene.add(group);
-
-    console.log('[SightScreen] at z = ' + zPos + ', size ' + W + '×' + H);
-  }
-
-  /* ═══════════════════════════════════════════════════════════
-     REPLAY SCREEN
+     REPLAY SCREEN — smaller, mounted in the stands
      ═══════════════════════════════════════════════════════════ */
   function buildReplayScreen(x, z, rotY, fieldY){
-    const W = 36, H = 20, D = 0.6;
+    const W = 25, H = 14, D = 0.6;
 
     const group = new THREE.Group();
 
+    // Frame
     const frame = new THREE.Mesh(
-      new THREE.BoxGeometry(W + 1.5, H + 1.5, D),
+      new THREE.BoxGeometry(W + 1.2, H + 1.2, D),
       new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.7, metalness: 0.3 })
     );
     group.add(frame);
 
+    // Canvas
     const cvs = document.createElement('canvas');
     cvs.width = 1024; cvs.height = 576;
     const ctx = cvs.getContext('2d');
@@ -317,11 +282,12 @@
     screen.position.z = D / 2 + 0.05;
     group.add(screen);
 
-    group.position.set(x, fieldY + H / 2 + 10, z);
+    // Mount screen low, so it's visibly inside the stands
+    group.position.set(x, fieldY + H / 2 + 4, z);
     group.rotation.y = rotY;
     scene.add(group);
 
-    console.log('[ReplayScreen] at (' + x + ',' + z + ') rotY=' + rotY.toFixed(2));
+    console.log('[ReplayScreen] at (' + x + ',' + z + ') size ' + W + '×' + H);
   }
 
   // ─── STADIUM ─────────────────────────────────────────────────
@@ -332,7 +298,10 @@
     if (!model) return;
     model.rotation.set(ROT_STADIUM.x, ROT_STADIUM.y, ROT_STADIUM.z);
     autoFit(model, STADIUM_SIZE);
-    enableMaterials(model);
+    // Don't force materials on the stadium — keep its own look
+    model.traverse(function(c){
+      if (c.isMesh){ c.castShadow = false; c.receiveShadow = false; }
+    });
     bottomToZero(model);
     model.position.x = 0;
     model.position.z = 0;
@@ -348,17 +317,13 @@
     console.log('[Raycast] grass at y = ' + fieldY.toFixed(2));
   }
 
-  /* ═══════════════════════════════════════════════════════════
-     PLACE PLAYERS
-     ═══════════════════════════════════════════════════════════ */
+  // ─── PLACE PLAYERS ───────────────────────────────────────────
   function placePlayers(models){
     const valid = models.filter(function(m){ return m; });
     if (valid.length === 0){ console.warn('[Players] none loaded'); return; }
 
     shuffle(valid);
     console.log('[Players] ' + valid.length + ' models → ' + FIELD_POSITIONS.length + ' roles');
-
-    const playerGroups = [];
 
     for (let i = 0; i < FIELD_POSITIONS.length; i++){
       const src = valid[i % valid.length];
@@ -371,28 +336,19 @@
       pm.rotation.set(0, 0, 0);
       pm.scale.set(1, 1, 1);
 
-      // Log BEFORE scaling to see natural size
-      pm.updateMatrixWorld(true);
-      const rawBox = new THREE.Box3().setFromObject(pm);
-      const rawSize = new THREE.Vector3();
-      rawBox.getSize(rawSize);
-      const rawMax = Math.max(rawSize.x, rawSize.y, rawSize.z);
-
       const scale = autoFit(pm, PLAYER_SIZE);
-      enableMaterials(pm);
+      const vis = forceVisible(pm);
       bottomToZero(pm);
 
       const pbox = new THREE.Box3().setFromObject(pm);
       const psz = new THREE.Vector3();
       pbox.getSize(psz);
-      console.log('[Player ' + pos.role + '] rawMax=' + rawMax.toFixed(3) +
-                  ' scale=' + scale.toFixed(5) +
-                  ' final=' + psz.x.toFixed(2) + '×' + psz.y.toFixed(2) + '×' + psz.z.toFixed(2) +
-                  ' yPos=' + pm.position.y.toFixed(3));
+      console.log('[Player ' + pos.role + '] scale=' + scale.toFixed(4) +
+                  ' size=' + psz.x.toFixed(2) + '×' + psz.y.toFixed(2) + '×' + psz.z.toFixed(2) +
+                  ' meshes=' + vis.meshCount + ' transparent=' + vis.transparentCount);
 
       group.add(pm);
 
-      // Attach bat
       if (pos.hasBat){
         const bat = makeBat();
         bat.position.set(-0.35, 0.95, 0.25);
@@ -401,14 +357,28 @@
         group.add(bat);
       }
 
-      // Attach ball
       if (pos.hasBall){
         const ball = makeBall();
         ball.position.set(0.35, 1.35, 0.20);
         group.add(ball);
       }
 
-      // Debug marker — a bright red glowing sphere at feet
+      // Fallback capsule — visible if model doesn't render
+      if (DEBUG_CAPSULES){
+        const capsule = new THREE.Mesh(
+          new THREE.CapsuleGeometry(0.4, 1.0, 6, 12),
+          new THREE.MeshStandardMaterial({
+            color: 0xff8800,
+            transparent: true,
+            opacity: 0.35,
+            emissive: 0xff8800,
+            emissiveIntensity: 0.2
+          })
+        );
+        capsule.position.y = 0.9;
+        group.add(capsule);
+      }
+
       if (DEBUG_MARKERS){
         const marker = new THREE.Mesh(
           new THREE.SphereGeometry(0.35, 12, 12),
@@ -424,18 +394,8 @@
       group.position.y = fieldY;
 
       scene.add(group);
-      playerGroups.push(group);
-
-      // Log world position of this player
-      group.updateMatrixWorld(true);
-      const worldPos = new THREE.Vector3();
-      group.getWorldPosition(worldPos);
-      console.log('  ↳ world pos: ' + worldPos.x.toFixed(1) + ', ' +
-                  worldPos.y.toFixed(2) + ', ' + worldPos.z.toFixed(1));
     }
-
-    window.__playerGroups = playerGroups;
-    console.log('[Players] placed ' + playerGroups.length + ' groups');
+    console.log('[Players] placed');
   }
 
   function setLoaderProgress(loaded, total){
@@ -469,27 +429,23 @@
       return r ? r.model : null;
     };
 
-    // Stadium
     placeStadium(pick('stadium'));
 
-    // Sight screens — beyond the grass boundary
-    // Grass is roughly 35m radius, so push screens to z = ±52
-    buildSightScreen( 52, fieldY);
-    buildSightScreen(-52, fieldY);
+    // Replay screens — inside the stadium, in the stands
+    // Stadium is 200m wide, grass is ~35m radius
+    // Stands occupy radius 40–100m. Put screens at ~55m from center.
+    buildReplayScreen( 55, 0, -Math.PI / 2, fieldY);
+    buildReplayScreen(-55, 0,  Math.PI / 2, fieldY);
 
-    // Replay screens on the sides (in the stands)
-    buildReplayScreen( 72, 0, -Math.PI / 2, fieldY);
-    buildReplayScreen(-72, 0,  Math.PI / 2, fieldY);
+    // Stumps at both ends
+    const stumpsA = makeStumps();
+    stumpsA.position.set(0, fieldY, 10);
+    scene.add(stumpsA);
 
-    // Stumps at both ends, aligned with pitch center (x = 0)
-    const stumpsStriker = makeStumps();
-    stumpsStriker.position.set(0, fieldY, 10);
-    scene.add(stumpsStriker);
-
-    const stumpsNonStriker = makeStumps();
-    stumpsNonStriker.position.set(0, fieldY, -10);
-    scene.add(stumpsNonStriker);
-    console.log('[Stumps] placed at z = ±10, centered on x = 0');
+    const stumpsB = makeStumps();
+    stumpsB.position.set(0, fieldY, -10);
+    scene.add(stumpsB);
+    console.log('[Stumps] placed at z = ±10');
 
     // Players
     const playerModels = PLAYER_FILES.map(function(_, i){
