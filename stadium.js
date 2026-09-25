@@ -1,14 +1,13 @@
 /* ══════════════════════════════════════════════════════════════
    StadiumView — Realistic Broadcast Edition (v3.4)
-   • Reliable grass detection — samples 121 points across the pitch
-   • 4 corner flood lights at the model's own tower tops
-   • Emissive panels on tower lamp faces → glow at night
-   • FrontSide applied AFTER raycast (never breaks fieldY)
+   • Fixed invisible grass/pitch (Restored DoubleSide rendering)
+   • Auto-detects the stadium's own floodlight meshes to make them glow
+   • No fake geometry added for lights
    ══════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
 
-  console.log('%c[stadium.js] IIFE started', 'color:#00e676;font-weight:bold');
+  console.log('%c[stadium.js] Core engine initializing...', 'color:#00e676;font-weight:bold');
 
   const STADIUM_FILE = 'models/stadium.glb';
   const PLAYER_FILES = [
@@ -16,20 +15,16 @@
     'models/p4.glb','models/p5.glb','models/p6.glb','models/p7.glb'
   ];
 
-  const STADIUM_SIZE    = 200;
-  const PLAYER_HEIGHT   = 1.80;
-  const BALL_DIAMETER   = 0.072;
-  const STUMPS_HEIGHT   = 0.71;
-  const BOUNDARY_RADIUS = 38;
-
-  // 4 corner tower positions (from the model's visible geometry)
-  const TOWER_XZ = 82;
-  const TOWER_Y  = 46;    // above the stadium base — the lamp panels sit here
+  const STADIUM_SIZE       = 200;
+  const PLAYER_HEIGHT      = 1.80;
+  const BALL_DIAMETER      = 0.072;
+  const STUMPS_HEIGHT      = 0.71;
+  const BOUNDARY_RADIUS    = 38;
 
   const FIELD_POSITIONS = [
     { role: 'Striker',            x:  0.4, y: 0, z:  8.6,  rotY: Math.PI,          hasBat: true  },
     { role: 'Non-Striker',        x: -1.2, y: 0, z: -8.6,  rotY: 0,                hasBat: true  },
-    { role: 'Umpire (Bowl End)',  x: -1.0, y: 0, z: -11.5, rotY: 0                                },
+    { role: 'Umpire (Bowl End)',  x: -1.0, y: 0, z: -11.5, rotY: 0                               },
     { role: 'Umpire (Sq Leg)',    x: -13,  y: 0, z:  0,    rotY: Math.PI * 0.5                   },
     { role: 'Bowler',             x:  0.5, y: 0, z: -24,   rotY: 0,                hasBall: true },
     { role: 'Keeper',             x:  0,   y: 0, z:  14,   rotY: Math.PI                         },
@@ -65,14 +60,47 @@
   sun.position.set(80, 400, 80);
   scene.add(sun);
 
+  // ─── IMMEDIATE EXPORT ───────────────────────────────────────
+  const playerRefs = {};
+  const accessoryRefs = {};
+  let fieldY = 0;
+  let stadiumRadius = 100;
+  let stadiumTopY = 50;
+  const stadiumLightMats = [];
+
+  window.StadiumView = {
+    scene: scene,
+    camera: camera,
+    renderer: renderer,
+    sun: sun,
+    hemi: hemi,
+    ambient: ambient,
+    stadiumRadius: stadiumRadius,
+    stadiumTopY: stadiumTopY,
+    fieldY: fieldY,
+    players: playerRefs,
+    accessories: accessoryRefs,
+    stumpsStriker: null,
+    stumpsBowler: null,
+    BOUNDARY_RADIUS: BOUNDARY_RADIUS,
+    setFloodlights: function(intensity) {
+      // Ignites the stadium's own meshes at night
+      stadiumLightMats.forEach(m => {
+        m.emissive = new THREE.Color(0xffffff);
+        m.emissiveIntensity = intensity * 2.5; 
+        m.needsUpdate = true;
+      });
+    }
+  };
+
+  // ─── LOADER ─────────────────────────────────────────────────
   const loader = new THREE.GLTFLoader();
   if (typeof THREE.DRACOLoader === 'function'){
     try {
       const draco = new THREE.DRACOLoader();
       draco.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/draco/');
       loader.setDRACOLoader(draco);
-      console.log('[Loader] DRACO attached ✅');
-    } catch(e){ console.warn('[Loader] DRACO failed:', e); }
+    } catch(e){}
   }
 
   const loadStatus = {};
@@ -85,7 +113,6 @@
         if (model && !model.name) model.name = key;
         loadStatus[key] = { status: 'loaded' };
         updateList();
-        console.log('[StadiumView] ✅ ' + key);
         resolve(model);
       }, function(p){
         if (p.total){
@@ -95,7 +122,6 @@
       }, function(err){
         loadStatus[key] = { status: 'failed' };
         updateList();
-        console.warn('[StadiumView] ❌ ' + key);
         resolve(null);
       });
     });
@@ -107,13 +133,12 @@
     const keys = Object.keys(loadStatus).sort();
     el.innerHTML = keys.map(function(key){
       const s = loadStatus[key];
-      let icon = '⏳', cls = 'wait';
-      if (s.status === 'loaded')       { icon = '✅'; cls = 'ok'; }
-      else if (s.status === 'failed')  { icon = '❌'; cls = 'fail'; }
-      return '<div class="row ' + cls + '">' + icon + ' ' + key + '</div>';
+      let icon = s.status === 'loaded' ? '✅' : s.status === 'failed' ? '❌' : '⏳';
+      return '<div class="row">' + icon + ' ' + key + '</div>';
     }).join('');
   }
 
+  // ─── HELPERS ────────────────────────────────────────────────
   function scaleToHeight(model, targetHeight){
     model.updateMatrixWorld(true);
     let box = new THREE.Box3().setFromObject(model);
@@ -167,64 +192,16 @@
     });
   }
 
-  // ═══════════════════════════════════════════════════════════
-  //  RELIABLE GRASS DETECTION
-  // ═══════════════════════════════════════════════════════════
   function findFieldLevel(stadiumModel){
-    const box = new THREE.Box3().setFromObject(stadiumModel);
-    const size = new THREE.Vector3();
-    box.getSize(size);
-    const modelHeight = size.y;
-    const baseY = box.min.y;
-
-    // Cast rays from y=30 (above grass, below roof) downward
-    // across a grid over the pitch
     const raycaster = new THREE.Raycaster();
-    const down = new THREE.Vector3(0, -1, 0);
-    const samples = [];
-    for (let x = -15; x <= 15; x += 3){
-      for (let z = -15; z <= 15; z += 3){
-        samples.push([x, z]);
-      }
-    }
-
-    const topHits = [];
-    samples.forEach(function(s){
-      raycaster.set(new THREE.Vector3(s[0], 30, s[1]), down);
-      const hits = raycaster.intersectObject(stadiumModel, true);
-      if (hits.length > 0){
-        topHits.push(hits[0].point.y);
-      }
-    });
-
-    if (topHits.length > 0){
-      // Mode = grass level (most samples hit the same Y)
-      const counts = {};
-      topHits.forEach(function(y){
-        const key = Math.round(y * 10) / 10;
-        counts[key] = (counts[key] || 0) + 1;
-      });
-      let bestY = 0, bestCount = 0;
-      Object.keys(counts).forEach(function(k){
-        if (counts[k] > bestCount){
-          bestCount = counts[k];
-          bestY = parseFloat(k);
-        }
-      });
-      if (bestCount >= 5 && bestY > 1){
-        console.log('[Raycast] grass at y = ' + bestY.toFixed(2) +
-                    ' (' + bestCount + '/' + samples.length + ' consistent hits)');
-        return bestY;
-      }
-    }
-
-    // Fallback — grass is typically ~15% up the model
-    const estimated = baseY + modelHeight * 0.15;
-    console.log('[Raycast] fallback estimate y = ' + estimated.toFixed(2) +
-                ' (model height ' + modelHeight.toFixed(1) + ')');
-    return estimated;
+    // Start at y=200 to avoid hitting sky domes, look down
+    raycaster.set(new THREE.Vector3(0, 200, 0), new THREE.Vector3(0, -1, 0));
+    const hits = raycaster.intersectObject(stadiumModel, true);
+    if (hits.length > 0) return hits[0].point.y;
+    return 0;
   }
 
+  // ─── EQUIPMENT ──────────────────────────────────────────────
   function makeBat(){
     const g = new THREE.Group();
     const bladeMat  = new THREE.MeshStandardMaterial({ color: 0xd4b483, roughness: 0.75 });
@@ -254,22 +231,15 @@
     return g;
   }
 
-  let stadiumRadius = 100;
-  let fieldY = 7.19;   // safe default in case everything fails
-  let stadiumModel = null;
-
+  // ─── STADIUM PLACEMENT & LIGHT EXTRACTION ───────────────────
   function placeStadium(model){
     if (!model) return;
-    stadiumModel = model;
     scaleToMaxDim(model, STADIUM_SIZE);
     bottomToZero(model);
     model.position.set(0, 0, 0);
     scene.add(model);
 
-    // ── RAYCAST FIRST while materials are untouched ──
-    fieldY = findFieldLevel(model);
-
-    // ── THEN force FrontSide so camera doesn't see interior walls ──
+    // RESTORED: DoubleSide to fix invisible grass/pitch
     model.traverse(function(c){
       if (c.isMesh){
         c.castShadow = false;
@@ -277,77 +247,40 @@
         if (c.material){
           const mats = Array.isArray(c.material) ? c.material : [c.material];
           mats.forEach(function(m){
-            m.side = THREE.FrontSide;
+            m.side = THREE.DoubleSide; 
             m.needsUpdate = true;
           });
         }
       }
     });
 
+    fieldY = findFieldLevel(model);
+    window.StadiumView.fieldY = fieldY;
+
     const box = new THREE.Box3().setFromObject(model);
     const sz = new THREE.Vector3();
     box.getSize(sz);
-    stadiumRadius = Math.max(sz.x, sz.z) * 0.6;
-    console.log('[Stadium] size: ' + sz.x.toFixed(1) + ' × ' + sz.y.toFixed(1) + ' × ' + sz.z.toFixed(1));
-  }
+    stadiumRadius = Math.max(sz.x, sz.z) * 0.5;
+    stadiumTopY = box.max.y;
+    
+    window.StadiumView.stadiumRadius = stadiumRadius;
+    window.StadiumView.stadiumTopY = stadiumTopY;
 
-  // ═══════════════════════════════════════════════════════════
-  //  FLOOD LIGHTS — 4 corner towers, visible glow panels
-  // ═══════════════════════════════════════════════════════════
-  const floodLights = [];
-
-  function attachFloodlight(x, z){
-    const yWorld = fieldY + TOWER_Y;
-
-    const spot = new THREE.SpotLight(0xffe9c0, 0.0, 800, Math.PI * 0.26, 0.55, 0.0);
-    spot.position.set(x, yWorld, z);
-    spot.target.position.set(0, fieldY, 0);
-    scene.add(spot);
-    scene.add(spot.target);
-
-    // Inward direction toward the pitch
-    const len = Math.hypot(x, z);
-    const nx = -x / len;
-    const nz = -z / len;
-
-    // Bright glowing quad — sits on the tower's pitch-facing panel
-    const panelMat = new THREE.MeshBasicMaterial({
-      color: 0x111111,
-      transparent: true,
-      opacity: 0.0,
-      side: THREE.DoubleSide,
-      toneMapped: false
-    });
-    const panel = new THREE.Mesh(new THREE.PlaneGeometry(9, 5.5), panelMat);
-    panel.position.set(x + nx * 0.6, yWorld - 1.5, z + nz * 0.6);
-    panel.lookAt(0, fieldY, 0);
-    scene.add(panel);
-
-    const ref = {
-      spot: spot,
-      panel: panel,
-      panelMat: panelMat,
-      setGlow: function(v){
-        spot.intensity   = v * 6.0;
-        panelMat.opacity = v;
-        panelMat.color.setRGB(0.15 + v * 0.85, 0.15 + v * 0.85, 0.10 + v * 0.90);
+    // Auto-detect the stadium's own floodlight panels by finding meshes near the very top
+    model.traverse(function(c){
+      if (c.isMesh) {
+        const meshBox = new THREE.Box3().setFromObject(c);
+        if (meshBox.max.y > stadiumTopY - 15) {
+           if (c.material) {
+             const mats = Array.isArray(c.material) ? c.material : [c.material];
+             mats.forEach(m => { stadiumLightMats.push(m); });
+           }
+        }
       }
-    };
-    ref.setGlow(0);
-    floodLights.push(ref);
-  }
-
-  function buildFloodlights(){
-    const R = TOWER_XZ;
-    [[R, R], [-R, R], [R, -R], [-R, -R]].forEach(function(p){
-      attachFloodlight(p[0], p[1]);
     });
-    console.log('[Floodlights] 4 corner towers lit (XZ = ±' + R + ', Y = ' + (fieldY + TOWER_Y).toFixed(1) + ')');
   }
 
-  // ═══════════════════════════════════════════════════════════
-  //  ADVERTISING BOARDS
-  // ═══════════════════════════════════════════════════════════
+  // ─── ADVERTISING BOARDS ─────────────────────────────────────
   const AD_BOARD_RADIUS = BOUNDARY_RADIUS + 1.5;
   const AD_BOARD_COUNT  = 24;
 
@@ -356,8 +289,7 @@
     cvs.width = 512; cvs.height = 96;
     const ctx = cvs.getContext('2d');
     ctx.fillStyle = bg; ctx.fillRect(0, 0, cvs.width, cvs.height);
-    ctx.fillStyle = fg; ctx.fillRect(0, 0, cvs.width, 6);
-    ctx.fillRect(0, cvs.height - 6, cvs.width, 6);
+    ctx.fillStyle = fg; ctx.fillRect(0, 0, cvs.width, 6); ctx.fillRect(0, cvs.height - 6, cvs.width, 6);
     ctx.font = 'bold 62px Arial, sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(label, cvs.width / 2, cvs.height / 2 + 2);
@@ -369,18 +301,20 @@
   function buildAdBoards(){
     const brands = [
       { label: 'CRICMAX',   bg: '#0a0e1a', fg: '#00e676' },
-      { label: 'CRICMAX',   bg: '#7f1d1d', fg: '#ffffff' },
-      { label: 'LIVE',      bg: '#0a0e1a', fg: '#22d3ee' },
+      { label: 'LIVE',      bg: '#7f1d1d', fg: '#ffffff' },
       { label: 'REPLAY',    bg: '#111111', fg: '#ff6d00' },
-      { label: 'CRICMAX',   bg: '#1e3a8a', fg: '#ffffff' },
-      { label: 'MATCHVIEW', bg: '#0a0e1a', fg: '#fbbf24' }
+      { label: 'MATCHVIEW', bg: '#1e3a8a', fg: '#ffffff' }
     ];
-    const boardH = 1.0, boardW = 5.0;
+
+    const boardH = 1.0;
+    const boardW = 5.0;
+
     for (let i = 0; i < AD_BOARD_COUNT; i++){
       const a = (i / AD_BOARD_COUNT) * Math.PI * 2;
       const x = Math.cos(a) * AD_BOARD_RADIUS;
       const z = Math.sin(a) * AD_BOARD_RADIUS;
       const b = brands[i % brands.length];
+
       const tex = makeAdTexture(b.label, b.bg, b.fg);
       const mat = new THREE.MeshStandardMaterial({
         map: tex, roughness: 0.6, metalness: 0.1,
@@ -391,15 +325,9 @@
       board.lookAt(0, fieldY + boardH / 2, 0);
       scene.add(board);
     }
-    console.log('[AdBoards] ' + AD_BOARD_COUNT + ' boards @ r=' + AD_BOARD_RADIUS);
   }
 
-  // ═══════════════════════════════════════════════════════════
-  //  PLAYERS
-  // ═══════════════════════════════════════════════════════════
-  const playerRefs = {};
-  const accessoryRefs = {};
-
+  // ─── PLAYERS ────────────────────────────────────────────────
   function placePlayers(playersData){
     playersData.forEach(function(pd){
       const src = pd.model;
@@ -408,12 +336,12 @@
 
       const group = new THREE.Group();
       group.name = 'PLAYER_' + pos.role.replace(/[^a-z0-9]/gi, '_');
-      group.userData.role = pos.role;
 
       const pm = src;
       pm.position.set(0, 0, 0);
       pm.rotation.set(0, 0, 0);
       pm.scale.set(1, 1, 1);
+
       scaleToHeight(pm, PLAYER_HEIGHT);
       forceVisible(pm);
       group.add(pm);
@@ -443,11 +371,10 @@
       scene.add(group);
       playerRefs[pos.role] = group;
     });
-    console.log('[Players] ' + Object.keys(playerRefs).length + ' placed @ y=' + fieldY.toFixed(2));
   }
 
+  // ─── BOOT ───────────────────────────────────────────────────
   async function boot(){
-    console.log('[Boot] boot() entered');
     const tasks = [{ key: 'stadium', url: STADIUM_FILE, type: 'stadium' }];
     FIELD_POSITIONS.forEach(function(pos, i){
       tasks.push({
@@ -457,35 +384,31 @@
         pos: pos
       });
     });
-    console.log('[Boot] loading ' + tasks.length + ' models...');
 
     let done = 0;
     const results = await Promise.all(tasks.map(function(t){
       return loadOne(t.key, t.url).then(function(m){
         done++;
         const sub = document.getElementById('loaderSub');
-        const txt = document.getElementById('loaderText');
         if (sub) sub.textContent = done + ' / ' + tasks.length + ' models';
-        if (txt && done === tasks.length) txt.textContent = 'Ready';
         return { type: t.type, model: m, pos: t.pos };
       });
     }));
 
-    console.log('[Boot] all models resolved');
-
     const stadiumResult = results.find(function(r){ return r.type === 'stadium'; });
     placeStadium(stadiumResult ? stadiumResult.model : null);
 
-    buildFloodlights();
     buildAdBoards();
 
     const stumpsA = makeStumps();
     stumpsA.position.set(0, fieldY, 10);
     scene.add(stumpsA);
+    window.StadiumView.stumpsStriker = stumpsA;
 
     const stumpsB = makeStumps();
     stumpsB.position.set(0, fieldY, -10);
     scene.add(stumpsB);
+    window.StadiumView.stumpsBowler = stumpsB;
 
     const playerData = results.filter(function(r){ return r.type === 'player'; });
     placePlayers(playerData);
@@ -494,23 +417,6 @@
       const el = document.getElementById('loader');
       if (el) el.classList.add('hide');
     }, 400);
-
-    window.StadiumView = {
-      scene: scene, camera: camera, renderer: renderer,
-      sun: sun, hemi: hemi, ambient: ambient,
-      stadiumModel: stadiumModel, stadiumRadius: stadiumRadius,
-      fieldY: fieldY, players: playerRefs, accessories: accessoryRefs,
-      stumpsStriker: stumpsA, stumpsBowler: stumpsB,
-      BOUNDARY_RADIUS: BOUNDARY_RADIUS,
-      floodLights: floodLights,
-      setFloodlights: function(v){
-        floodLights.forEach(function(f){ f.setGlow(v); });
-      }
-    };
-
-    console.log('[StadiumView] Ready. fieldY=' + fieldY.toFixed(2) +
-                ' · floods=' + floodLights.length +
-                ' · players=' + Object.keys(playerRefs).length);
   }
 
   window.addEventListener('resize', function(){
@@ -532,7 +438,6 @@
     }
   }
 
-  console.log('[stadium.js] calling boot() + animate()');
   boot().catch(function(e){ console.error('[stadium.js] ❌ boot() threw:', e); });
   animate();
 
