@@ -1,14 +1,13 @@
 /* ══════════════════════════════════════════════════════════════
-   StadiumView — Kinematics v16.0 (Biomechanical Analytics Engine)
-   • ARCHITECTURE: Enforces exact kinematic thresholds from analytics specs.
-   • BATTING: Calculates and enforces X-Factor separation and front-knee bracing.
-   • BOWLING: Implements BFC -> FFC -> BR phases; locks elbow extension < 15°.
-   • FIELDING: Enforces 30°-35° throw release angles.
+   StadiumView — Kinematics v17.0 (Keeper Direction & Stance Fix)
+   • FIXED: Keeper rotY set to Math.PI to correctly face the pitch.
+   • FIXED: Restored truncated idle torso logic so the Keeper crouches again.
+   • LIVERY: Mumbai Blue for fielders, Red/Yellow F1 livery for Batsmen.
    ══════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
 
-  console.log('%c[players.js] IIFE started — kinematics v16.0 (Analytics Engine)', 'color:#00e5ff;font-weight:bold');
+  console.log('%c[players.js] IIFE started — kinematics v17.0 (Keeper Fix)', 'color:#00e5ff;font-weight:bold');
 
   const IS_MOBILE_PLAYERS = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
   const BONE_EVERY = IS_MOBILE_PLAYERS ? 3 : 1;
@@ -46,14 +45,13 @@
   }
 
   // ═════════════════════════════════════════════════════════════
-  //  1. GLOBAL COORDINATE MAPPING
-  //  X: Lateral (Off-side), Y: Depth (Pitch), Z: Vertical (Up)
+  //  1. GLOBAL COORDINATE MAPPING (Fixed Keeper Rotation)
   // ═════════════════════════════════════════════════════════════
   const STANCE_OVERRIDES = {
     'Striker':          { x: -0.32, z: 8.8,   rotY: Math.PI * 0.72, batTilt: 0.25 },
     'Non-Striker':      { x: 1.05,  z: -9.5,  rotY: -Math.PI * 0.22, batTilt: 0.25 },
     'Bowler':           { x: 0.6,   z: -24,   rotY: 0 },
-    'Keeper':           { x: -0.32, z: 12.5,  rotY: 0 }, 
+    'Keeper':           { x: -0.32, z: 12.5,  rotY: Math.PI }, // 180 deg fix to face the pitch
     'UmpireBowlersEnd': { x: 0.5,   z: -11.5, rotY: 0 },
     'UmpireSquareLeg':  { x: -14,   z: 8.8,   rotY: Math.PI / 2 }
   };
@@ -165,6 +163,24 @@
       if (skel.slots[slot]) skel.rest[slot] = skel.slots[slot].quaternion.clone();
     });
   }
+  
+  function calibrateRig(skel){
+    const axes = [new THREE.Vector3(1,0,0), new THREE.Vector3(0,1,0), new THREE.Vector3(0,0,1)];
+    let bestAxis = axes[0], bestZ = 0;
+    
+    axes.forEach(axis => {
+      const b = skel.slots.lThigh;
+      if (!b || !skel.rest.lThigh) return;
+      const test = new THREE.Quaternion().setFromAxisAngle(axis, 1.0);
+      b.quaternion.copy(skel.rest.lThigh).multiply(test);
+      b.updateMatrixWorld(true);
+      const pw = new THREE.Vector3();
+      if (skel.slots.lShin) skel.slots.lShin.getWorldPosition(pw);
+      if (Math.abs(pw.z) > bestZ){ bestZ = Math.abs(pw.z); bestAxis = axis; }
+      b.quaternion.copy(skel.rest.lThigh);
+    });
+    skel.bendAxis = bestAxis;
+  }
 
   function applyJerseyColors(role, group) {
     group.traverse(c => {
@@ -178,7 +194,8 @@
           if (clone.emissive) clone.emissive.setHex(0x000000); 
 
           if (role === 'Striker' || role === 'Non-Striker') {
-            if(clone.color) clone.color.setHex(0xF9CD05); 
+            if(clone.color) clone.color.setHex(0xE31837); 
+            if(clone.emissive) { clone.emissive.setHex(0xFFD700); clone.emissiveIntensity = 0.25; }
           } else if (role.includes('Umpire')) {
             if(clone.color) clone.color.setHex(0x222222); 
           } else {
@@ -227,9 +244,9 @@
     }
 
     bakeRestPose(skel);
+    calibrateRig(skel);
     applyJerseyColors(role, group); 
     
-    // Analytics Metrics Cache
     playerObj.metrics = { kneeAngle: 180, xFactor: 0, elbowAngle: 180 };
     return playerObj;
   }
@@ -248,6 +265,12 @@
     const _qa = new THREE.Quaternion(), _qb = new THREE.Quaternion();
     const X = new THREE.Vector3(1,0,0), Y = new THREE.Vector3(0,1,0), Z = new THREE.Vector3(0,0,1);
 
+    function dBend(sk, slot, ang){
+      if (!sk.slots[slot] || !sk.rest[slot] || !sk.bendAxis) return;
+      _qa.setFromAxisAngle(sk.bendAxis, ang); 
+      _qb.copy(sk.rest[slot]).multiply(_qa);
+      sk.slots[slot].quaternion.copy(_qb);
+    }
     function dX(sk, slot, ang){
       if (!sk.slots[slot] || !sk.rest[slot]) return;
       _qa.setFromAxisAngle(X, ang); _qb.copy(sk.rest[slot]).multiply(_qa);
@@ -289,41 +312,55 @@
     }
 
     // ═════════════════════════════════════════════════════════════
-    //  2. BATTING ANALYTICS: Kinetic Chain Pipeline
+    //  RESTORED IDLE STANCE (Keeper Crouch)
+    // ═════════════════════════════════════════════════════════════
+    function torso(p, t){
+      const sk = p.skel;
+      if (p.role === 'Striker') {
+        dBend(sk, 'lThigh', -0.3); dBend(sk, 'lShin', 0.4);
+        dBend(sk, 'rThigh', -0.3); dBend(sk, 'rShin', 0.4);
+        if(sk.slots.lUpperArm) pointBoneDown(sk.slots.lUpperArm, new THREE.Vector3(0.5, -0.5, 0.5).normalize());
+        if(sk.slots.rUpperArm) pointBoneDown(sk.slots.rUpperArm, new THREE.Vector3(0.5, -0.5, 0.5).normalize());
+      }
+      else if (p.role === 'Keeper') {
+        dBend(sk, 'lThigh', -1.4); dBend(sk, 'lShin', 1.8); 
+        dBend(sk, 'rThigh', -1.4); dBend(sk, 'rShin', 1.8); 
+        if(sk.slots.lUpperArm) pointBoneDown(sk.slots.lUpperArm, new THREE.Vector3(0, -0.5, 0.8).normalize());
+        if(sk.slots.rUpperArm) pointBoneDown(sk.slots.rUpperArm, new THREE.Vector3(0, -0.5, 0.8).normalize());
+      }
+    }
+
+    // ═════════════════════════════════════════════════════════════
+    //  ANALYTICS KINEMATICS
     // ═════════════════════════════════════════════════════════════
     function battingKinematics(p){
       const sk = p.skel;
       const a = p.phase;
       
-      // X-FACTOR SEPARATION: Torso rotates prior to shoulders/bat
-      const xFactorRot = Math.sin(a * Math.PI) * 0.4; // Simulates separation angle
+      const xFactorRot = Math.sin(a * Math.PI) * 0.4;
       p.metrics.xFactor = (xFactorRot * 180 / Math.PI).toFixed(1);
 
-      // FRONT KNEE BRACING: Leg extends at impact (phase ~0.6)
       const isImpact = (a > 0.5 && a < 0.7);
-      const kneeFlexion = isImpact ? 0 : 0.4; // 0 = fully braced (180 deg)
+      const kneeFlexion = isImpact ? 0 : 0.4;
       p.metrics.kneeAngle = 180 - (kneeFlexion * 180 / Math.PI);
 
-      dX(sk, 'lThigh', -0.6); // Stride out
-      dX(sk, 'lShin', kneeFlexion); // Enforce Bracing Constraint
+      dX(sk, 'lThigh', -0.6); 
+      dX(sk, 'lShin', kneeFlexion); 
       dX(sk, 'rThigh', 0.3);  
       
       if (a < 0.4){
-        // Backlift
         const q = a / 0.4; 
-        dY(sk, 'hips', 0.2 * q); // Pelvis initiates
-        dY(sk, 'chest', (0.2 - xFactorRot) * q); // Torso lags (X-Factor)
+        dY(sk, 'hips', 0.2 * q); 
+        dY(sk, 'chest', (0.2 - xFactorRot) * q); 
         dX(sk, 'rUpperArm', 1.5 * q); 
         dX(sk, 'lUpperArm', 0.8 * q); 
       } else if (a < 0.7) {
-        // Impact Phase
         const q = (a - 0.4) / 0.3; 
         dY(sk, 'hips', 0.2 - 0.6 * q);
-        dY(sk, 'chest', (0.2 - xFactorRot) - 0.8 * q); // Torso snaps through
+        dY(sk, 'chest', (0.2 - xFactorRot) - 0.8 * q); 
         dX(sk, 'rUpperArm', 1.5 - 2.0 * q); 
         dX(sk, 'lUpperArm', 0.8 - 1.5 * q); 
       } else {
-        // Follow Through
         const q = (a - 0.7) / 0.3;
         dY(sk, 'chest', -0.6 - 0.2 * q);
         dX(sk, 'rUpperArm', -0.5 - 0.5 * q);
@@ -331,56 +368,43 @@
       }
     }
 
-    // ═════════════════════════════════════════════════════════════
-    //  3. BOWLING ANALYTICS: Injury & Release Thresholds
-    // ═════════════════════════════════════════════════════════════
     function bowlingKinematics(p){
       const sk = p.skel;
       const a = p.phase; 
       
-      // ELBOW EXTENSION CONSTRAINT (Chucking Check)
-      // Lock forearm relative to upper arm to ensure Δθ <= 15°
-      dX(sk, 'rForeArm', 0); // Mathematically forces 0 deg extension variance
+      dX(sk, 'rForeArm', 0); 
       p.metrics.elbowAngle = 180;
 
       if (a < 0.3) {
-        // PRE-DELIVERY STRIDE (Approaching BFC)
         const q = a / 0.3; 
         dX(sk, 'lThigh', -0.6 * q); 
         dZ(sk, 'lUpperArm', 0.5); dX(sk, 'lUpperArm', -1.5 * q); 
         dX(sk, 'rUpperArm', 0.5 * q); 
       } else if (a < 0.6) {
-        // BFC to FRONT FOOT CONTACT (FFC)
         const q = (a - 0.3) / 0.3; 
         dX(sk, 'lUpperArm', -1.5 + 2.0 * q); 
-        dX(sk, 'rUpperArm', 0.5 - Math.PI * q); // Bowling arm rotation
-        dY(sk, 'chest', 0.5 * q); // Shoulder counter-rotation tracking
+        dX(sk, 'rUpperArm', 0.5 - Math.PI * q); 
+        dY(sk, 'chest', 0.5 * q); 
       } else {
-        // BALL RELEASE (BR) -> FOLLOW THROUGH
         const q = (a - 0.6) / 0.4; 
         dX(sk, 'rThigh', -0.8 * Math.sin(q * Math.PI)); 
         dX(sk, 'rUpperArm', (0.5 - Math.PI) - 0.5 * q); 
       }
     }
 
-    // ═════════════════════════════════════════════════════════════
-    //  4. FIELDING ANALYTICS: Throw Release Trajectory
-    // ═════════════════════════════════════════════════════════════
     function throwKinematics(p){
       const sk = p.skel;
       const a = p.phase;
       
       if (a < 0.5) {
         const q = a / 0.5;
-        dX(sk, 'chest', -0.3 * q); // Lean back
+        dX(sk, 'chest', -0.3 * q); 
         dX(sk, 'rUpperArm', -1.5 * q);
-        dX(sk, 'rForeArm', -1.5 * q); // Crow-hop windup
+        dX(sk, 'rForeArm', -1.5 * q); 
       } else {
         const q = (a - 0.5) / 0.5;
         dX(sk, 'chest', -0.3 + 0.6 * q);
-        
-        // Target Release Angle (Φ) = 30° to 35°
-        const optimalRelease = 0.52; // ~30 degrees in radians
+        const optimalRelease = 0.52; 
         dX(sk, 'rUpperArm', -1.5 + (1.5 + optimalRelease) * q); 
         dX(sk, 'rForeArm', -1.5 + 1.5 * q); 
       }
@@ -409,7 +433,7 @@
 
         if (doBones) {
           resetToRest(p);
-          if (p.mode === 'idle') { /* Stance logic omitted for brevity */ }
+          if (p.mode === 'idle') torso(p, globalT); 
           else if (p.mode === 'batting') battingKinematics(p);
           else if (p.mode === 'bowling') bowlingKinematics(p);
           else if (p.mode === 'throw') throwKinematics(p);
@@ -420,7 +444,6 @@
       
       const bowlerBall = accessories['Bowler'] && accessories['Bowler'].ball;
       if(bowlerBall && players['Bowler']){
-          // Ball Release Trigger Logic (Phase 0.6 = exact BR frame)
           bowlerBall.visible = (players['Bowler'].mode === 'idle' || players['Bowler'].phase < 0.6);
       }
     }
