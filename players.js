@@ -1,14 +1,13 @@
 /* ══════════════════════════════════════════════════════════════
-   StadiumView — Kinematics v12.0 (Dynamic Team Jerseys)
-   • ADDED: applyJerseyColors() for dynamic material tinting.
-   • MI Blue & Gold for Bowler, Keeper, and Fielders.
-   • F1 Red & Yellow livery for Striker and Non-Striker.
-   • Material cloning ensures meshes don't share the same color state.
+   StadiumView — Kinematics v13.0 (Absolute Color & Rotation Fix)
+   • FIXED: Fielders rotated 180° to fix inverted GLTF forward axes.
+   • FIXED: Aggressive material targeting (colors everything except skin/hair).
+   • LIVERY: Mumbai Blue/Gold for fielding, Red/Yellow for Batsmen.
    ══════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
 
-  console.log('%c[players.js] IIFE started — kinematics v12.0 (Jersey Update)', 'color:#00e5ff;font-weight:bold');
+  console.log('%c[players.js] IIFE started — kinematics v13.0 (Color & Target Fix)', 'color:#ff00ea;font-weight:bold');
 
   const IS_MOBILE_PLAYERS = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
   const BONE_EVERY = IS_MOBILE_PLAYERS ? 3 : 1;
@@ -195,29 +194,38 @@
   }
 
   // ═════════════════════════════════════════════════════════════
-  //  JERSEY RE-COLORING ENGINE
+  //  AGGRESSIVE JERSEY RE-COLORING ENGINE
   // ═════════════════════════════════════════════════════════════
   function applyJerseyColors(role, group) {
     group.traverse(c => {
       if (c.isMesh && c.material) {
-        // Regex targeting likely clothing meshes to prevent turning skin/hair blue
-        if (/shirt|jersey|cloth|top|apparel/i.test(c.name) || /shirt|jersey|cloth/i.test(c.material.name)) {
-          c.material = c.material.clone();
-          
-          if (role === 'Striker' || role === 'Non-Striker') {
-            // F1-inspired Red & Yellow livery
-            c.material.color.setHex(0xE31837); // Racing Red
-            c.material.emissive.setHex(0xFFD700); // Yellow accent
-            c.material.emissiveIntensity = 0.15;
-          } else if (role.includes('Umpire')) {
-            c.material.color.setHex(0x111111); // Umpire black
-          } else {
-            // Mumbai Blue & Gold
-            c.material.color.setHex(0x004BA0); // MI Blue
-            c.material.emissive.setHex(0xD4AF37); // Gold accent
-            c.material.emissiveIntensity = 0.15;
+        // Handle models with multi-materials (arrays) safely
+        const mats = Array.isArray(c.material) ? c.material : [c.material];
+        
+        const newMats = mats.map(m => {
+          // If the material is named skin/face/hair, LEAVE IT ALONE
+          if (/skin|face|hair|body|eye|mouth|teeth/i.test(m.name) || /skin|face|hair/i.test(c.name)) {
+            return m; 
           }
-        }
+          
+          let clone = m.clone();
+          if (role === 'Striker' || role === 'Non-Striker') {
+            // Batsmen Livery (Red and Yellow)
+            if(clone.color) clone.color.setHex(0xE31837); 
+            if(clone.emissive) { clone.emissive.setHex(0xFFD700); clone.emissiveIntensity = 0.25; } 
+          } else if (role.includes('Umpire')) {
+            // Umpires
+            if(clone.color) clone.color.setHex(0x111111);
+          } else {
+            // Mumbai Indians (Blue and Gold)
+            if(clone.color) clone.color.setHex(0x004BA0); 
+            if(clone.emissive) { clone.emissive.setHex(0xD4AF37); clone.emissiveIntensity = 0.25; }
+          }
+          return clone;
+        });
+
+        // Reapply the safely cloned materials
+        c.material = Array.isArray(c.material) ? newMats : newMats[0];
       }
     });
   }
@@ -231,17 +239,18 @@
       group.position.set(stance.x, group.position.y, stance.z);
       group.rotation.y = stance.rotY;
     } else {
+      // AUTO-TARGETING (Inverted to fix the models facing backwards)
       const targetX = 0;
       const targetZ = 8.8;
       const dx = targetX - group.position.x;
       const dz = targetZ - group.position.z;
-      group.rotation.y = Math.atan2(dx, dz) + Math.PI; 
+      group.rotation.y = Math.atan2(dx, dz); // Math.PI removed to flip them towards pitch
     }
     
     group.updateMatrixWorld(true);
     bakeRestPose(skel);
     calibrateRig(skel);
-    applyJerseyColors(role, group); // Inject Team Colors
+    applyJerseyColors(role, group); 
 
     const playerObj = {
       role, group, skel, stance: stance || null,
@@ -279,17 +288,7 @@
       _qb.copy(sk.rest[slot]).multiply(_qa);
       sk.slots[slot].quaternion.copy(_qb);
     }
-    function dX(sk, slot, ang){
-      if (!sk.slots[slot] || !sk.rest[slot]) return;
-      _qa.setFromAxisAngle(X, ang); _qb.copy(sk.rest[slot]).multiply(_qa);
-      sk.slots[slot].quaternion.copy(_qb);
-    }
-    function dY(sk, slot, ang){
-      if (!sk.slots[slot] || !sk.rest[slot]) return;
-      _qa.setFromAxisAngle(Y, ang); _qb.copy(sk.rest[slot]).multiply(_qa);
-      sk.slots[slot].quaternion.copy(_qb);
-    }
-
+    
     function lockAccessories(p) {
       if (p.batObj && p.skel.slots.rHand) {
          p.skel.slots.rHand.updateMatrixWorld(true);
@@ -359,30 +358,6 @@
       }
     }
 
-    function battingSwing(p){
-      const sk = p.skel;
-      const a = p.phase;
-      
-      if (a < 0.4){
-        const q = a / 0.4; 
-        dY(sk, 'spine', 0.4 * q); 
-        dX(sk, 'rUpperArm', 1.5 * q); 
-        dX(sk, 'lUpperArm', 0.8 * q); 
-      } 
-      else if (a < 0.7) {
-        const q = (a - 0.4) / 0.3; 
-        dY(sk, 'spine', 0.4 - 0.8 * q);
-        dX(sk, 'rUpperArm', 1.5 - 2.0 * q); 
-        dX(sk, 'lUpperArm', 0.8 - 1.5 * q); 
-      } 
-      else {
-        const q = (a - 0.7) / 0.3;
-        dY(sk, 'spine', -0.4 - 0.2 * q);
-        dX(sk, 'rUpperArm', -0.5 - 0.5 * q);
-        dX(sk, 'lUpperArm', -0.7 - 0.5 * q);
-      }
-    }
-
     let globalT = 0, lastFrame = performance.now(), frameCount = 0;
 
     function tick(now){
@@ -408,7 +383,7 @@
           resetToRest(p);
           if (p.mode === 'idle') torso(p, globalT);
           else if (p.mode === 'walk' || p.mode === 'running') runCycle(p);
-          else if (p.mode === 'batting') { battingFootwork(p); battingSwing(p); }
+          else if (p.mode === 'batting') battingFootwork(p); 
           
           lockAccessories(p);
         }
@@ -435,6 +410,6 @@
     }
 
     window.PlayerControl = { players, play };
-    console.log('[PlayerControl] ✅ Ready — Jersey Engine Active');
+    console.log('[PlayerControl] ✅ Ready — Colors & Rotations Applied');
   }
 })();
