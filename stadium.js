@@ -1,5 +1,5 @@
 /* ══════════════════════════════════════════════════════════════
-   StadiumView — full cricket setup with visible players
+   StadiumView — clean, no duplicates
    ══════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
@@ -13,8 +13,6 @@
 
   const STADIUM_SIZE = 200;
   const PLAYER_SIZE  = 1.9;
-
-  const DEBUG_MARKERS = false;
 
   const ROT_STADIUM = { x: 0, y: 0, z: 0 };
 
@@ -36,10 +34,9 @@
     { role: 'Third Man',          x: 12,    y: 0, z: 14,    rotY: Math.PI }
   ];
 
-  // ─── SCENE ───────────────────────────────────────────────────
+  // ─── SCENE (only ONE declaration — this was the bug) ─────────
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x87b8e0);
-  // No fog — it darkens distant players
   scene.fog = null;
 
   const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 5000);
@@ -53,7 +50,7 @@
   document.body.appendChild(renderer.domElement);
 
   // ─── LIGHTS ──────────────────────────────────────────────────
-  scene.add(new THREE.AmbientLight(0xffffff, 2.0));      // ← brighter
+  scene.add(new THREE.AmbientLight(0xffffff, 2.0));
   const hemi = new THREE.HemisphereLight(0xffffff, 0x88aa88, 1.5);
   scene.add(hemi);
   const sun = new THREE.DirectionalLight(0xffffff, 1.0);
@@ -63,7 +60,7 @@
   fill.position.set(-80, 300, -80);
   scene.add(fill);
 
-  // ─── LOADER + DRACO ──────────────────────────────────────────
+  // ─── LOADER ──────────────────────────────────────────────────
   const loader = new THREE.GLTFLoader();
   if (typeof THREE.DRACOLoader === 'function'){
     try {
@@ -136,10 +133,35 @@
     model.position.y -= nb.min.y;
   }
 
-  /* ─── FIX: make players self-illuminate so they're visible ─── */
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x87b8e0);
-scene.fog = new THREE.Fog(0x87b8e0, 500, 2000);
+  function forceVisible(obj){
+    let meshCount = 0;
+    obj.traverse(function(c){
+      c.visible = true;
+      c.frustumCulled = false;
+      if (c.isMesh){
+        meshCount++;
+        if (c.material){
+          const mats = Array.isArray(c.material) ? c.material : [c.material];
+          mats.forEach(function(m){
+            m.transparent = false;
+            m.opacity = 1;
+            m.alphaTest = 0;
+            m.depthWrite = true;
+            if (typeof m.roughness === 'number') m.roughness = 0.75;
+            if (typeof m.metalness === 'number') m.metalness = 0;
+            m.side = THREE.DoubleSide;
+            if (m.emissive){
+              if (m.color) m.emissive.copy(m.color);
+              else m.emissive.setHex(0x333333);
+              m.emissiveIntensity = 0.35;
+            }
+            m.needsUpdate = true;
+          });
+        }
+      }
+    });
+    return { meshCount: meshCount };
+  }
 
   function shuffle(arr){
     for (let i = arr.length - 1; i > 0; i--){
@@ -157,7 +179,7 @@ scene.fog = new THREE.Fog(0x87b8e0, 500, 2000);
     return 0;
   }
 
-  // ─── PROCEDURAL EQUIPMENT ────────────────────────────────────
+  // ─── EQUIPMENT ───────────────────────────────────────────────
   function makeBat(){
     const g = new THREE.Group();
     const bladeMat = new THREE.MeshStandardMaterial({ color: 0xd4b483, roughness: 0.75 });
@@ -172,7 +194,7 @@ scene.fog = new THREE.Fog(0x87b8e0, 500, 2000);
   }
 
   function makeBall(){
-    const mat = new THREE.MeshStandardMaterial({ color: 0x991b1b, roughness: 0.55 });
+    const mat = new THREE.MeshStandardMaterial({ color: 0x991b1b, roughness: 0.55, emissive: 0x330000, emissiveIntensity: 0.2 });
     const ball = new THREE.Mesh(new THREE.SphereGeometry(0.036, 16, 16), mat);
     const seamMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
     const seam = new THREE.Mesh(new THREE.TorusGeometry(0.036, 0.004, 6, 20), seamMat);
@@ -216,7 +238,6 @@ scene.fog = new THREE.Fog(0x87b8e0, 500, 2000);
 
     ctx.fillStyle = '#0a0e1a';
     ctx.fillRect(0, 0, cvs.width, cvs.height);
-
     ctx.fillStyle = '#e10600';
     ctx.fillRect(0, 0, cvs.width, 10);
     ctx.fillRect(0, cvs.height - 10, cvs.width, 10);
@@ -234,11 +255,9 @@ scene.fog = new THREE.Fog(0x87b8e0, 500, 2000);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('CRICMAX', cvs.width / 2, 200);
-
     ctx.fillStyle = '#00e676';
     ctx.font = 'bold 80px Arial';
     ctx.fillText('REPLAY', cvs.width / 2, 330);
-
     ctx.fillStyle = '#7a8590';
     ctx.font = 'bold 34px Arial';
     ctx.fillText('LIVE · MATCH VIEWER', cvs.width / 2, 440);
@@ -255,7 +274,7 @@ scene.fog = new THREE.Fog(0x87b8e0, 500, 2000);
     group.rotation.y = rotY;
     scene.add(group);
 
-    console.log('[ReplayScreen] at (' + x + ',' + z + ') size ' + W + '×' + H);
+    console.log('[ReplayScreen] at (' + x + ',' + z + ')');
   }
 
   // ─── STADIUM ─────────────────────────────────────────────────
@@ -286,6 +305,7 @@ scene.fog = new THREE.Fog(0x87b8e0, 500, 2000);
 
   // ─── PLAYERS ─────────────────────────────────────────────────
   const playerRefs = {};
+  const accessoryRefs = {};
 
   function placePlayers(models){
     const valid = models.filter(function(m){ return m; });
@@ -318,21 +338,16 @@ scene.fog = new THREE.Fog(0x87b8e0, 500, 2000);
         bat.rotation.x = -0.7;
         bat.rotation.z = 0.15;
         group.add(bat);
+        accessoryRefs[pos.role] = accessoryRefs[pos.role] || {};
+        accessoryRefs[pos.role].bat = bat;
       }
 
       if (pos.hasBall){
         const ball = makeBall();
         ball.position.set(0.35, 1.35, 0.20);
         group.add(ball);
-      }
-
-      if (DEBUG_MARKERS){
-        const marker = new THREE.Mesh(
-          new THREE.SphereGeometry(0.35, 12, 12),
-          new THREE.MeshBasicMaterial({ color: 0xff0066 })
-        );
-        marker.position.set(0, 0.35, 0);
-        group.add(marker);
+        accessoryRefs[pos.role] = accessoryRefs[pos.role] || {};
+        accessoryRefs[pos.role].ball = ball;
       }
 
       group.rotation.y = pos.rotY || 0;
@@ -412,7 +427,10 @@ scene.fog = new THREE.Fog(0x87b8e0, 500, 2000);
       hemi: hemi,
       stadiumRadius: stadiumRadius,
       fieldY: fieldY,
-      players: playerRefs
+      players: playerRefs,
+      accessories: accessoryRefs,
+      stumpsStriker: stumpsA,
+      stumpsBowler: stumpsB
     };
 
     console.log('[StadiumView] Ready. fieldY=' + fieldY.toFixed(2));
