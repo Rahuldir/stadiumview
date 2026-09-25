@@ -1,5 +1,6 @@
 /* ══════════════════════════════════════════════════════════════
    StadiumView — 3D scene + model loading
+   (pitch removed — stadium.glb already contains it)
    ══════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
@@ -7,7 +8,6 @@
   // ─── CONFIG (edit these to match your files) ─────────────────
   const MODEL_FILES = {
     stadium: 'models/stadium.glb',
-    pitch:   'models/pitch.glb',
     ball:    'models/ball.glb',
     bat:     'models/bat.glb',
     player:  'models/player.glb'
@@ -16,7 +16,6 @@
   // Target sizes in metres (0 = keep native size)
   const TARGET_SCALE = {
     stadium: 0,
-    pitch:   20.12,
     ball:    0.072,
     bat:     0.965,
     player:  1.8
@@ -25,7 +24,6 @@
   // Manual rotations (radians) — fix orientation issues here
   const MANUAL_ROTATION = {
     stadium: { x: 0, y: 0, z: 0 },
-    pitch:   { x: 0, y: 0, z: 0 },
     ball:    { x: 0, y: 0, z: 0 },
     bat:     { x: 0, y: 0, z: 0 },
     player:  { x: 0, y: 0, z: 0 }
@@ -34,13 +32,12 @@
   // Manual positions (metres) — where each model sits in the world
   const POSITION = {
     stadium: { x: 0,    y: 0,    z: 0 },
-    pitch:   { x: 0,    y: 0.02, z: 0 },
     ball:    { x: 0,    y: 0.10, z: 6 },
     bat:     { x: 1.2,  y: 0,    z: 9 },
     player:  { x: 0.35, y: 0,    z: 9 }
   };
 
-  // ─── SCENE ────────────────────────────────────────────────────
+  // ─── SCENE ───────────────────────────────────────────────────
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x050a12);
   scene.fog = new THREE.Fog(0x050a12, 300, 1200);
@@ -79,7 +76,7 @@
 
   scene.add(new THREE.AmbientLight(0xffffff, 0.3));
 
-  // ─── GROUND ──────────────────────────────────────────────────
+  // ─── GROUND (fallback if stadium has no ground) ──────────────
   const ground = new THREE.Mesh(
     new THREE.CircleGeometry(500, 64),
     new THREE.MeshStandardMaterial({ color: 0x0a1a10, roughness: 1 })
