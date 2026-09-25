@@ -1,13 +1,14 @@
 /* ══════════════════════════════════════════════════════════════
-   StadiumView — Kinematics v10.0 (World-Space Solver)
-   • FIXED: "Zombie" arms (uses world-space gravity solver instead of local axes)
-   • FIXED: Floating bat (now uses a strict frame-by-frame position lock)
-   • FIXED: Keeper crouch and batsman stances re-anchored
+   StadiumView — Kinematics v11.0 (Auto-Targeting & Clone Fix)
+   • FIXED: Duplicated fielders now calculate pitch geometry and face the Striker.
+   • FIXED: Keeper flipped 180° to face the pitch (corrected inverted axis).
+   • FIXED: Hardcoded roles for Striker, Non-Striker, Bowler, Keeper, and Umpires.
+   • FIXED: Keeper crouch depth increased to fix hovering.
    ══════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
 
-  console.log('%c[players.js] IIFE started — kinematics v10.0 (World Solver)', 'color:#00e676;font-weight:bold');
+  console.log('%c[players.js] IIFE started — kinematics v11.0 (Targeting Engine)', 'color:#ff9100;font-weight:bold');
 
   const IS_MOBILE_PLAYERS = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
   const BONE_EVERY = IS_MOBILE_PLAYERS ? 3 : 1;
@@ -45,11 +46,16 @@
     return null;
   }
 
+  // ═════════════════════════════════════════════════════════════
+  //  THE MAIN ROLES (Hardcoded absolute positions & rotations)
+  // ═════════════════════════════════════════════════════════════
   const STANCE_OVERRIDES = {
-    'Striker': { x: -0.32, z: 8.8, rotY: Math.PI * 0.72 },
-    'Non-Striker': { x: 1.05, z: -9.5, rotY: -Math.PI * 0.22 },
-    'Bowler': { x: 0.6, z: -24, rotY: 0 },
-    'Keeper': { x: -0.32, z: 12.5, rotY: Math.PI }
+    'Striker':          { x: -0.32, z: 8.8,   rotY: Math.PI * 0.72, batTilt: 0.25 },
+    'Non-Striker':      { x: 1.05,  z: -9.5,  rotY: -Math.PI * 0.22, batTilt: 0.25 },
+    'Bowler':           { x: 0.6,   z: -24,   rotY: 0 },
+    'Keeper':           { x: -0.32, z: 12.5,  rotY: 0 }, // Flipped from Math.PI to 0 based on screenshot evidence
+    'UmpireBowlersEnd': { x: 0.5,   z: -11.5, rotY: 0 },
+    'UmpireSquareLeg':  { x: -14,   z: 8.8,   rotY: Math.PI / 2 }
   };
 
   const BONE_SLOTS = [
@@ -123,9 +129,7 @@
     return { bones, slots, rest: {} };
   }
 
-  // ═════════════════════════════════════════════════════════════
-  //  WORLD-SPACE GRAVITY SOLVER (Destroys the Zombie Pose)
-  // ═════════════════════════════════════════════════════════════
+  // World-Space Solver to destroy Zombie T-Pose
   const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _targetDown = new THREE.Vector3(0, -1, 0);
   const _parentQ = new THREE.Quaternion(), _invParentQ = new THREE.Quaternion();
   const _worldRot = new THREE.Quaternion(), _newLocalQ = new THREE.Quaternion();
@@ -165,19 +169,14 @@
   }
 
   function bakeRestPose(skel){
-    // Force arms straight down using gravity, ignoring local axes
     if (skel.slots.lUpperArm) pointBoneDown(skel.slots.lUpperArm, _targetDown);
     if (skel.slots.rUpperArm) pointBoneDown(skel.slots.rUpperArm, _targetDown);
 
-    // Save the gravity-corrected pose as the new baseline
     BONE_SLOTS.forEach(slot => {
       if (skel.slots[slot]) skel.rest[slot] = skel.slots[slot].quaternion.clone();
     });
   }
 
-  // ═════════════════════════════════════════════════════════════
-  //  CALIBRATE KNEE BENDING AXIS
-  // ═════════════════════════════════════════════════════════════
   function calibrateRig(skel){
     const axes = [new THREE.Vector3(1,0,0), new THREE.Vector3(0,1,0), new THREE.Vector3(0,0,1)];
     let bestAxis = axes[0], bestZ = 0;
@@ -202,11 +201,22 @@
 
     const stance = STANCE_OVERRIDES[role];
     if (stance){
+      // Lock Main 5
       group.position.set(stance.x, group.position.y, stance.z);
       group.rotation.y = stance.rotY;
-      group.updateMatrixWorld(true);
+    } else {
+      // AUTO-TARGETING FOR CLONED FIELDERS
+      // Calculate rotation to face the Striker at (0, 0, 8.8)
+      const targetX = 0;
+      const targetZ = 8.8;
+      const dx = targetX - group.position.x;
+      const dz = targetZ - group.position.z;
+      
+      // Standard mathematical calculation to force mesh to face the center of action
+      group.rotation.y = Math.atan2(dx, dz) + Math.PI; 
     }
-
+    
+    group.updateMatrixWorld(true);
     bakeRestPose(skel);
     calibrateRig(skel);
 
@@ -218,7 +228,6 @@
       home: { x: group.position.x, y: group.position.y, z: group.position.z, rotY: group.rotation.y }
     };
     
-    // Prep attachments for strictly controlled world-space rendering
     if (playerObj.batObj && playerObj.batObj.parent) playerObj.batObj.parent.remove(playerObj.batObj);
     if (playerObj.ballObj && playerObj.ballObj.parent) playerObj.ballObj.parent.remove(playerObj.ballObj);
     if (playerObj.batObj) window.StadiumView.scene.add(playerObj.batObj);
@@ -239,6 +248,7 @@
     if (Object.keys(players).length === 0) return;
 
     const _qa = new THREE.Quaternion(), _qb = new THREE.Quaternion();
+    const X = new THREE.Vector3(1,0,0), Y = new THREE.Vector3(0,1,0), Z = new THREE.Vector3(0,0,1);
 
     function dBend(sk, slot, ang){
       if (!sk.slots[slot] || !sk.rest[slot] || !sk.bendAxis) return;
@@ -246,18 +256,24 @@
       _qb.copy(sk.rest[slot]).multiply(_qa);
       sk.slots[slot].quaternion.copy(_qb);
     }
+    function dX(sk, slot, ang){
+      if (!sk.slots[slot] || !sk.rest[slot]) return;
+      _qa.setFromAxisAngle(X, ang); _qb.copy(sk.rest[slot]).multiply(_qa);
+      sk.slots[slot].quaternion.copy(_qb);
+    }
+    function dY(sk, slot, ang){
+      if (!sk.slots[slot] || !sk.rest[slot]) return;
+      _qa.setFromAxisAngle(Y, ang); _qb.copy(sk.rest[slot]).multiply(_qa);
+      sk.slots[slot].quaternion.copy(_qb);
+    }
 
-    // Force constraints every frame
     function lockAccessories(p) {
       if (p.batObj && p.skel.slots.rHand) {
          p.skel.slots.rHand.updateMatrixWorld(true);
          const handPos = new THREE.Vector3();
          p.skel.slots.rHand.getWorldPosition(handPos);
-         
-         // Strict absolute orientation (fixes floating/twisted bat)
          const worldRot = p.group.rotation.y;
          p.batObj.quaternion.setFromEuler(new THREE.Euler(Math.PI * 0.4, worldRot, 0, 'YXZ'));
-         
          const handleOffset = new THREE.Vector3(0, 0.45, 0).applyQuaternion(p.batObj.quaternion);
          p.batObj.position.copy(handPos).sub(handleOffset);
       }
@@ -285,18 +301,21 @@
           dBend(sk, 'rThigh', -0.3); dBend(sk, 'rShin', 0.4);
           p.group.position.y = p.home.y - 0.15; 
           
-          // Pull arms forward toward bat handle
           if(sk.slots.lUpperArm) pointBoneDown(sk.slots.lUpperArm, new THREE.Vector3(0.5, -0.5, 0.5).normalize());
           if(sk.slots.rUpperArm) pointBoneDown(sk.slots.rUpperArm, new THREE.Vector3(0.5, -0.5, 0.5).normalize());
         }
         else if (p.role === 'Keeper') {
-          dBend(sk, 'lThigh', -1.2); dBend(sk, 'lShin', 1.5); 
-          dBend(sk, 'rThigh', -1.2); dBend(sk, 'rShin', 1.5); 
-          p.group.position.y = p.home.y - 0.5; // Deep squat
+          // Deepened the Keeper squat to fix the hovering bug
+          dBend(sk, 'lThigh', -1.4); dBend(sk, 'lShin', 1.8); 
+          dBend(sk, 'rThigh', -1.4); dBend(sk, 'rShin', 1.8); 
+          p.group.position.y = p.home.y - 0.65; // Dropped significantly
           
-          // Hands forward
           if(sk.slots.lUpperArm) pointBoneDown(sk.slots.lUpperArm, new THREE.Vector3(0, -0.5, 0.8).normalize());
           if(sk.slots.rUpperArm) pointBoneDown(sk.slots.rUpperArm, new THREE.Vector3(0, -0.5, 0.8).normalize());
+        }
+        else {
+           // Base Fielder/Umpire stance
+           dBend(sk, 'lThigh', -0.1); dBend(sk, 'rThigh', -0.1);
         }
       } 
     }
@@ -305,6 +324,42 @@
       const rc = p.phase * 12;
       dBend(p.skel, 'lThigh', -Math.sin(rc) * 0.8);
       dBend(p.skel, 'rThigh', Math.sin(rc) * 0.8);
+    }
+    
+    function battingFootwork(p){
+      const sk = p.skel;
+      const a = p.phase;
+      if (p.action === 'frontDrive' || p.action === 'batting'){
+        const stride = Math.sin(a * Math.PI); 
+        dBend(sk, 'lThigh', -0.8 * stride); 
+        dBend(sk, 'lShin', 0.6 * stride);   
+        dBend(sk, 'rThigh', 0.3 * stride);  
+        p.group.position.y = p.home.y - 0.25 * stride; 
+      }
+    }
+
+    function battingSwing(p){
+      const sk = p.skel;
+      const a = p.phase;
+      
+      if (a < 0.4){
+        const q = a / 0.4; 
+        dY(sk, 'spine', 0.4 * q); 
+        dX(sk, 'rUpperArm', 1.5 * q); 
+        dX(sk, 'lUpperArm', 0.8 * q); 
+      } 
+      else if (a < 0.7) {
+        const q = (a - 0.4) / 0.3; 
+        dY(sk, 'spine', 0.4 - 0.8 * q);
+        dX(sk, 'rUpperArm', 1.5 - 2.0 * q); 
+        dX(sk, 'lUpperArm', 0.8 - 1.5 * q); 
+      } 
+      else {
+        const q = (a - 0.7) / 0.3;
+        dY(sk, 'spine', -0.4 - 0.2 * q);
+        dX(sk, 'rUpperArm', -0.5 - 0.5 * q);
+        dX(sk, 'lUpperArm', -0.7 - 0.5 * q);
+      }
     }
 
     let globalT = 0, lastFrame = performance.now(), frameCount = 0;
@@ -332,8 +387,8 @@
           resetToRest(p);
           if (p.mode === 'idle') torso(p, globalT);
           else if (p.mode === 'walk' || p.mode === 'running') runCycle(p);
+          else if (p.mode === 'batting') { battingFootwork(p); battingSwing(p); }
           
-          // Lock accessories post-animation update
           lockAccessories(p);
         }
       });
@@ -350,7 +405,8 @@
       if (!p) return false;
       const A = {
         bowling:      { mode: 'bowling',  phaseSpeed: 0.35, loop: false },
-        batting:      { mode: 'batting',  phaseSpeed: 0.45, loop: false }
+        batting:      { mode: 'batting',  phaseSpeed: 0.45, loop: false },
+        frontDrive:   { mode: 'batting',  action: 'frontDrive', phaseSpeed: 0.50, loop: false },
       };
       if (!A[action]) return false;
       p.mode = A[action].mode; p.action = action; p.phaseSpeed = A[action].phaseSpeed; p.loop = A[action].loop; p.phase = 0;
@@ -358,6 +414,6 @@
     }
 
     window.PlayerControl = { players, play };
-    console.log('[PlayerControl] ✅ Ready — World Solver Active');
+    console.log('[PlayerControl] ✅ Ready — Targeting Engine Active');
   }
 })();
