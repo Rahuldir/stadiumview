@@ -137,36 +137,9 @@
   }
 
   /* ─── FIX: make players self-illuminate so they're visible ─── */
-  function forceVisible(obj){
-    let meshCount = 0;
-    obj.traverse(function(c){
-      c.visible = true;
-      c.frustumCulled = false;
-      if (c.isMesh){
-        meshCount++;
-        if (c.material){
-          const mats = Array.isArray(c.material) ? c.material : [c.material];
-          mats.forEach(function(m){
-            m.transparent = false;
-            m.opacity = 1;
-            m.alphaTest = 0;
-            m.depthWrite = true;
-            if (typeof m.roughness === 'number') m.roughness = 0.75;
-            if (typeof m.metalness === 'number') m.metalness = 0;
-            m.side = THREE.DoubleSide;
-            // Self-illumination — this is what makes players visible
-            if (m.emissive){
-              if (m.color) m.emissive.copy(m.color);
-              else m.emissive.setHex(0x333333);
-              m.emissiveIntensity = 0.35;
-            }
-            m.needsUpdate = true;
-          });
-        }
-      }
-    });
-    return { meshCount: meshCount };
-  }
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x87b8e0);
+scene.fog = new THREE.Fog(0x87b8e0, 500, 2000);
 
   function shuffle(arr){
     for (let i = arr.length - 1; i > 0; i--){
