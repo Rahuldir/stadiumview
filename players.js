@@ -1,20 +1,18 @@
 /* ══════════════════════════════════════════════════════════════
-   StadiumView — Kinematics v9.0 (T-Pose Killer & Ultimate Realism)
-   • FIXED: Destroys the T-Pose by forcing explicit joint rotations every frame
-   • FIXED: Wicketkeeper forced into a deep, authentic crouch
-   • FIXED: Batsman stance forces hands together; bat strictly locked to palm
-   • FIXED: Bowler load-up and follow-through mechanics smoothed
+   StadiumView — Kinematics v10.0 (World-Space Solver)
+   • FIXED: "Zombie" arms (uses world-space gravity solver instead of local axes)
+   • FIXED: Floating bat (now uses a strict frame-by-frame position lock)
+   • FIXED: Keeper crouch and batsman stances re-anchored
    ══════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
 
-  console.log('%c[players.js] IIFE started — kinematics v9.0 (T-Pose Override)', 'color:#ff3d00;font-weight:bold');
+  console.log('%c[players.js] IIFE started — kinematics v10.0 (World Solver)', 'color:#00e676;font-weight:bold');
 
   const IS_MOBILE_PLAYERS = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
   const BONE_EVERY = IS_MOBILE_PLAYERS ? 3 : 1;
 
-  let attempts = 0;
-  const MAX_ATTEMPTS = 100;
+  let attempts = 0, MAX_ATTEMPTS = 100;
 
   const wait = setInterval(function(){
     attempts++;
@@ -33,7 +31,7 @@
 
   function collectPlayers(){
     if (window.StadiumView && window.StadiumView.players && Object.keys(window.StadiumView.players).length >= 5){
-      return { players: window.StadiumView.players, source: 'StadiumView.players' };
+      return { players: window.StadiumView.players };
     }
     if (window.StadiumView && window.StadiumView.scene){
       const out = {};
@@ -42,18 +40,15 @@
         const role = o.userData.role || o.name.replace(/^PLAYER_/, '').replace(/_/g, ' ');
         out[role] = o;
       });
-      if (Object.keys(out).length >= 5) return { players: out, source: 'scene traversal' };
+      if (Object.keys(out).length >= 5) return { players: out };
     }
     return null;
   }
 
-  // ═════════════════════════════════════════════════════════════
-  //  REAL CRICKET STANCE OVERRIDES
-  // ═════════════════════════════════════════════════════════════
   const STANCE_OVERRIDES = {
-    'Striker': { x: -0.32, z: 8.8, rotY: Math.PI * 0.72, batTilt: 0.25 },
-    'Non-Striker': { x: 1.05, z: -9.5, rotY: -Math.PI * 0.22, batTilt: 0.25 },
-    'Bowler': { x: 0.6, z: -24, rotY: 0, batTilt: 0 },
+    'Striker': { x: -0.32, z: 8.8, rotY: Math.PI * 0.72 },
+    'Non-Striker': { x: 1.05, z: -9.5, rotY: -Math.PI * 0.22 },
+    'Bowler': { x: 0.6, z: -24, rotY: 0 },
     'Keeper': { x: -0.32, z: 12.5, rotY: Math.PI }
   };
 
@@ -125,46 +120,82 @@
     if (!slots.lShin && slots.lThigh) slots.lShin = childOf(slots.lThigh);
     if (!slots.rShin && slots.rThigh) slots.rShin = childOf(slots.rThigh);
 
-    const rest = {};
-    // FORCE ARMS DOWN IMMEDIATELY to override T-Pose rest state
-    if (slots.lUpperArm) slots.lUpperArm.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1), 1.3));
-    if (slots.rUpperArm) slots.rUpperArm.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1), -1.3));
+    return { bones, slots, rest: {} };
+  }
 
+  // ═════════════════════════════════════════════════════════════
+  //  WORLD-SPACE GRAVITY SOLVER (Destroys the Zombie Pose)
+  // ═════════════════════════════════════════════════════════════
+  const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _targetDown = new THREE.Vector3(0, -1, 0);
+  const _parentQ = new THREE.Quaternion(), _invParentQ = new THREE.Quaternion();
+  const _worldRot = new THREE.Quaternion(), _newLocalQ = new THREE.Quaternion();
+
+  function pointBoneDown(bone, targetDir){
+    if (!bone) return false;
+    let child = null;
+    for (let i = 0; i < bone.children.length; i++){
+      if (bone.children[i].isBone || bone.children[i].type === 'Bone'){ child = bone.children[i]; break; }
+    }
+    if (!child && bone.children.length > 0) child = bone.children[0];
+    if (!child) return false;
+
+    bone.updateWorldMatrix(true, false);
+    child.updateWorldMatrix(true, false);
+    bone.getWorldPosition(_v1);
+    child.getWorldPosition(_v2);
+
+    const currentDir = _v2.clone().sub(_v1);
+    if (currentDir.lengthSq() < 1e-8) return false;
+    currentDir.normalize();
+
+    _worldRot.setFromUnitVectors(currentDir, targetDir);
+
+    if (bone.parent){
+      bone.parent.getWorldQuaternion(_parentQ);
+      _invParentQ.copy(_parentQ).invert();
+    } else {
+      _parentQ.identity();
+      _invParentQ.identity();
+    }
+
+    _newLocalQ.copy(_invParentQ).multiply(_worldRot).multiply(_parentQ).multiply(bone.quaternion);
+    bone.quaternion.copy(_newLocalQ);
+    bone.updateWorldMatrix(true);
+    return true;
+  }
+
+  function bakeRestPose(skel){
+    // Force arms straight down using gravity, ignoring local axes
+    if (skel.slots.lUpperArm) pointBoneDown(skel.slots.lUpperArm, _targetDown);
+    if (skel.slots.rUpperArm) pointBoneDown(skel.slots.rUpperArm, _targetDown);
+
+    // Save the gravity-corrected pose as the new baseline
     BONE_SLOTS.forEach(slot => {
-      if (slots[slot]) rest[slot] = slots[slot].quaternion.clone();
+      if (skel.slots[slot]) skel.rest[slot] = skel.slots[slot].quaternion.clone();
     });
-
-    return { bones, slots, rest };
   }
 
   // ═════════════════════════════════════════════════════════════
-  //  STRICT ATTACHMENTS (Locks bat firmly to hand)
+  //  CALIBRATE KNEE BENDING AXIS
   // ═════════════════════════════════════════════════════════════
-  function attachBat(bat, hand, tiltRad){
-    if (!bat || !hand) return false;
-    if (bat.parent) bat.parent.remove(bat);
-    hand.add(bat); // Add DIRECTLY as a child of the bone
+  function calibrateRig(skel){
+    const axes = [new THREE.Vector3(1,0,0), new THREE.Vector3(0,1,0), new THREE.Vector3(0,0,1)];
+    let bestAxis = axes[0], bestZ = 0;
     
-    // Explicit local transform to lock it to the palm
-    bat.position.set(0, -0.4, 0); 
-    bat.quaternion.setFromEuler(new THREE.Euler(Math.PI / 2 + tiltRad, 0, 0, 'XYZ'));
-    return true;
+    axes.forEach(axis => {
+      const b = skel.slots.lThigh;
+      if (!b || !skel.rest.lThigh) return;
+      const test = new THREE.Quaternion().setFromAxisAngle(axis, 1.0);
+      b.quaternion.copy(skel.rest.lThigh).multiply(test);
+      b.updateMatrixWorld(true);
+      const pw = new THREE.Vector3();
+      if (skel.slots.lShin) skel.slots.lShin.getWorldPosition(pw);
+      if (Math.abs(pw.z) > bestZ){ bestZ = Math.abs(pw.z); bestAxis = axis; }
+      b.quaternion.copy(skel.rest.lThigh);
+    });
+    skel.bendAxis = bestAxis;
   }
 
-  function attachBall(ball, hand){
-    if (!ball || !hand) return false;
-    if (ball.parent) ball.parent.remove(ball);
-    hand.add(ball);
-    
-    ball.scale.set(2.0, 2.0, 2.0); // Make it highly visible
-    ball.position.set(0, -0.1, 0); // Lock to palm center
-    ball.quaternion.identity();
-    return true;
-  }
-
-  // ═════════════════════════════════════════════════════════════
-  //  PLAYER INITIALIZATION
-  // ═════════════════════════════════════════════════════════════
   function makePlayer(role, group, accessoryRef){
     const skel = buildSkeleton(group);
     if (skel.bones.length === 0) return null;
@@ -176,27 +207,26 @@
       group.updateMatrixWorld(true);
     }
 
+    bakeRestPose(skel);
+    calibrateRig(skel);
+
     const playerObj = {
       role, group, skel, stance: stance || null,
       mode: 'idle', action: null, phase: 0, phaseSpeed: 1, loop: true,
-      params: {},
+      batObj: (accessoryRef && accessoryRef.bat) ? accessoryRef.bat : null,
+      ballObj: (accessoryRef && accessoryRef.ball) ? accessoryRef.ball : null,
       home: { x: group.position.x, y: group.position.y, z: group.position.z, rotY: group.rotation.y }
     };
+    
+    // Prep attachments for strictly controlled world-space rendering
+    if (playerObj.batObj && playerObj.batObj.parent) playerObj.batObj.parent.remove(playerObj.batObj);
+    if (playerObj.ballObj && playerObj.ballObj.parent) playerObj.ballObj.parent.remove(playerObj.ballObj);
+    if (playerObj.batObj) window.StadiumView.scene.add(playerObj.batObj);
+    if (playerObj.ballObj) window.StadiumView.scene.add(playerObj.ballObj);
 
-    if (accessoryRef && accessoryRef.bat){
-      const hand = skel.slots.rHand || skel.slots.lHand;
-      if (hand) attachBat(accessoryRef.bat, hand, stance ? stance.batTilt : 0.2);
-    }
-    if (accessoryRef && accessoryRef.ball){
-      const hand = skel.slots.rHand || skel.slots.lHand;
-      if (hand) attachBall(accessoryRef.ball, hand);
-    }
     return playerObj;
   }
 
-  // ═════════════════════════════════════════════════════════════
-  //  PHYSICS ENGINE & POSE OVERRIDES
-  // ═════════════════════════════════════════════════════════════
   function boot(rawPlayers){
     const roles = Object.keys(rawPlayers);
     const accessories = (window.StadiumView.accessories) || {};
@@ -208,176 +238,73 @@
     });
     if (Object.keys(players).length === 0) return;
 
-    const X = new THREE.Vector3(1,0,0), Y = new THREE.Vector3(0,1,0), Z = new THREE.Vector3(0,0,1);
     const _qa = new THREE.Quaternion(), _qb = new THREE.Quaternion();
 
-    function dX(sk, slot, ang){
-      if (!sk.slots[slot] || !sk.rest[slot]) return;
-      _qa.setFromAxisAngle(X, ang); _qb.copy(sk.rest[slot]).multiply(_qa);
+    function dBend(sk, slot, ang){
+      if (!sk.slots[slot] || !sk.rest[slot] || !sk.bendAxis) return;
+      _qa.setFromAxisAngle(sk.bendAxis, ang); 
+      _qb.copy(sk.rest[slot]).multiply(_qa);
       sk.slots[slot].quaternion.copy(_qb);
     }
-    function dY(sk, slot, ang){
-      if (!sk.slots[slot] || !sk.rest[slot]) return;
-      _qa.setFromAxisAngle(Y, ang); _qb.copy(sk.rest[slot]).multiply(_qa);
-      sk.slots[slot].quaternion.copy(_qb);
-    }
-    function dZ(sk, slot, ang){
-      if (!sk.slots[slot] || !sk.rest[slot]) return;
-      _qa.setFromAxisAngle(Z, ang); _qb.copy(sk.rest[slot]).multiply(_qa);
-      sk.slots[slot].quaternion.copy(_qb);
+
+    // Force constraints every frame
+    function lockAccessories(p) {
+      if (p.batObj && p.skel.slots.rHand) {
+         p.skel.slots.rHand.updateMatrixWorld(true);
+         const handPos = new THREE.Vector3();
+         p.skel.slots.rHand.getWorldPosition(handPos);
+         
+         // Strict absolute orientation (fixes floating/twisted bat)
+         const worldRot = p.group.rotation.y;
+         p.batObj.quaternion.setFromEuler(new THREE.Euler(Math.PI * 0.4, worldRot, 0, 'YXZ'));
+         
+         const handleOffset = new THREE.Vector3(0, 0.45, 0).applyQuaternion(p.batObj.quaternion);
+         p.batObj.position.copy(handPos).sub(handleOffset);
+      }
+      if (p.ballObj && p.skel.slots.rHand) {
+         p.skel.slots.rHand.updateMatrixWorld(true);
+         const handPos = new THREE.Vector3();
+         p.skel.slots.rHand.getWorldPosition(handPos);
+         p.ballObj.position.copy(handPos);
+         p.ballObj.scale.set(1.5, 1.5, 1.5);
+      }
     }
 
     function resetToRest(p){
       BONE_SLOTS.forEach(slot => {
-        if (p.skel.slots[slot] && p.skel.rest[slot]) {
-          p.skel.slots[slot].quaternion.copy(p.skel.rest[slot]);
-        }
+        if (p.skel.slots[slot] && p.skel.rest[slot]) p.skel.slots[slot].quaternion.copy(p.skel.rest[slot]);
       });
       p.group.position.y = p.home.y;
     }
 
-    function headNeck(p, t, ball){
-      const sk = p.skel;
-      if (p.mode === 'idle' && p.role !== 'Keeper') dX(sk, 'neck', Math.sin(t * 1.5) * 0.04);
-      if (ball && (p.mode === 'batting' || p.mode === 'keeping')){
-        const hp = new THREE.Vector3();
-        if (sk.slots.head) sk.slots.head.getWorldPosition(hp);
-        const dx = ball.x - hp.x, dy = ball.y - hp.y, dz = ball.z - hp.z;
-        dY(sk, 'neck', Math.max(-0.6, Math.min(0.6, Math.atan2(dx, dz))));
-      }
-    }
-
-    // ─── STRICT POSE ENFORCEMENT (Kills the T-Pose) ──────────────────────
     function torso(p, t){
       const sk = p.skel;
       if (p.mode === 'idle'){
         if (p.role === 'Striker') {
-          // Batsman Stance: Knees bent, arms tightly forward holding bat
-          dX(sk, 'lThigh', -0.3); dX(sk, 'lShin', 0.3);
-          dX(sk, 'rThigh', -0.3); dX(sk, 'rShin', 0.3);
-          dX(sk, 'spine', 0.2); 
-          p.group.position.y = p.home.y - 0.1; 
+          dBend(sk, 'lThigh', -0.3); dBend(sk, 'lShin', 0.4);
+          dBend(sk, 'rThigh', -0.3); dBend(sk, 'rShin', 0.4);
+          p.group.position.y = p.home.y - 0.15; 
           
-          // Force hands together in front of waist
-          dZ(sk, 'lUpperArm', 0.6); dX(sk, 'lUpperArm', -0.4); dY(sk, 'lUpperArm', 0.4); dX(sk, 'lForeArm', -0.3);
-          dZ(sk, 'rUpperArm', -0.6); dX(sk, 'rUpperArm', -0.4); dY(sk, 'rUpperArm', -0.4); dX(sk, 'rForeArm', -0.3);
-          
-          const tap = Math.sin(t * 8) * 0.04; 
-          dX(sk, 'lUpperArm', -0.4 + tap);
-          dX(sk, 'rUpperArm', -0.4 + tap);
+          // Pull arms forward toward bat handle
+          if(sk.slots.lUpperArm) pointBoneDown(sk.slots.lUpperArm, new THREE.Vector3(0.5, -0.5, 0.5).normalize());
+          if(sk.slots.rUpperArm) pointBoneDown(sk.slots.rUpperArm, new THREE.Vector3(0.5, -0.5, 0.5).normalize());
         }
         else if (p.role === 'Keeper') {
-          // Keeper: Deep Squat, hands cupped forward
-          dX(sk, 'lThigh', -1.2); dX(sk, 'lShin', 1.4); 
-          dX(sk, 'rThigh', -1.2); dX(sk, 'rShin', 1.4); 
-          dX(sk, 'spine', 0.6); 
-          dX(sk, 'neck', -0.4); 
-          p.group.position.y = p.home.y - 0.45; // Hips drop drastically
+          dBend(sk, 'lThigh', -1.2); dBend(sk, 'lShin', 1.5); 
+          dBend(sk, 'rThigh', -1.2); dBend(sk, 'rShin', 1.5); 
+          p.group.position.y = p.home.y - 0.5; // Deep squat
           
-          // Arms thrust forward to catch
-          dZ(sk, 'lUpperArm', 0.5); dX(sk, 'lUpperArm', -0.8); dX(sk, 'lForeArm', -0.5);
-          dZ(sk, 'rUpperArm', -0.5); dX(sk, 'rUpperArm', -0.8); dX(sk, 'rForeArm', -0.5);
+          // Hands forward
+          if(sk.slots.lUpperArm) pointBoneDown(sk.slots.lUpperArm, new THREE.Vector3(0, -0.5, 0.8).normalize());
+          if(sk.slots.rUpperArm) pointBoneDown(sk.slots.rUpperArm, new THREE.Vector3(0, -0.5, 0.8).normalize());
         }
-        else {
-           // Fielders: Relaxed ready stance
-           dX(sk, 'lThigh', -0.1); dX(sk, 'rThigh', -0.1);
-           dZ(sk, 'lUpperArm', 0.2); dZ(sk, 'rUpperArm', -0.2); // Keep arms tucked slightly
-        }
-      } 
-      else if (p.mode === 'walk'){
-        const rc = p.phase * 12;
-        p.group.position.y = p.home.y + Math.abs(Math.sin(rc)) * 0.05;
       } 
     }
 
     function runCycle(p){
-      const sk = p.skel;
       const rc = p.phase * 12;
-      dX(sk, 'lUpperArm', Math.sin(rc) * 0.8);
-      dX(sk, 'rUpperArm', -Math.sin(rc) * 0.8);
-      dX(sk, 'lThigh', -Math.sin(rc) * 0.6);
-      dX(sk, 'rThigh', Math.sin(rc) * 0.6);
-      dX(sk, 'lShin', Math.max(0, Math.sin(rc + 0.5)) * 0.8);
-      dX(sk, 'rShin', Math.max(0, -Math.sin(rc + 0.5)) * 0.8);
-    }
-
-    function bowlingAction(p){
-      const sk = p.skel;
-      const a = p.phase; 
-      if (a < 0.3) {
-        // Jump and Load
-        const q = a / 0.3; 
-        p.group.position.y = p.home.y + Math.sin(q * Math.PI) * 0.2; 
-        dX(sk, 'lThigh', -0.6 * q); 
-        dZ(sk, 'lUpperArm', 0.5); dX(sk, 'lUpperArm', -1.5 * q); // Front arm high
-        dX(sk, 'rUpperArm', 0.5 * q); // Bowling arm low
-      } else if (a < 0.6) {
-        // Delivery Stride
-        const q = (a - 0.3) / 0.3; 
-        dX(sk, 'lUpperArm', -1.5 + 2.0 * q); // Front arm pulls down
-        dX(sk, 'rUpperArm', 0.5 - Math.PI * q); // Bowling arm rotates rapidly over
-        dX(sk, 'spine', 0.5 * q); // Snap spine forward
-      } else {
-        // Follow Through
-        const q = (a - 0.6) / 0.4; 
-        dX(sk, 'spine', 0.5 - 0.3 * q); 
-        dX(sk, 'rThigh', -0.8 * Math.sin(q * Math.PI)); // Back leg kicks up
-        dX(sk, 'rUpperArm', (0.5 - Math.PI) - 0.5 * q); // Arm follows across body
-      }
-    }
-
-    function battingFootwork(p){
-      const sk = p.skel;
-      const a = p.phase;
-      if (p.action === 'frontDrive' || p.action === 'batting'){
-        const stride = Math.sin(a * Math.PI); 
-        dX(sk, 'lThigh', -0.8 * stride); 
-        dX(sk, 'lShin', 0.6 * stride);   
-        dX(sk, 'rThigh', 0.3 * stride);  
-        p.group.position.y = p.home.y - 0.25 * stride; 
-        dX(sk, 'spine', 0.3 * stride); 
-      }
-    }
-
-    function battingSwing(p){
-      const sk = p.skel;
-      const a = p.phase;
-      
-      if (a < 0.4){
-        // High Backlift
-        const q = a / 0.4; 
-        dY(sk, 'spine', 0.4 * q); // Shoulder rotation
-        dX(sk, 'rUpperArm', 1.5 * q); dZ(sk, 'rUpperArm', -0.5); // Right elbow high
-        dX(sk, 'lUpperArm', 0.8 * q); dY(sk, 'lUpperArm', 0.5 * q);
-        dX(sk, 'rForeArm', -1.2 * q); // Cock wrists
-      } 
-      else if (a < 0.7) {
-        // Explosive Downswing
-        const q = (a - 0.4) / 0.3; 
-        dY(sk, 'spine', 0.4 - 0.8 * q);
-        dX(sk, 'rUpperArm', 1.5 - 2.0 * q); 
-        dX(sk, 'lUpperArm', 0.8 - 1.5 * q); 
-        dX(sk, 'rForeArm', -1.2 + 1.2 * q); // Snap wrists
-      } 
-      else {
-        // Follow Through wrapping over shoulder
-        const q = (a - 0.7) / 0.3;
-        dY(sk, 'spine', -0.4 - 0.2 * q);
-        dX(sk, 'rUpperArm', -0.5 - 0.5 * q);
-        dX(sk, 'lUpperArm', -0.7 - 0.5 * q);
-        dX(sk, 'lForeArm', -1.5 * q); 
-      }
-    }
-
-    const bowlerBall = accessories['Bowler'] && accessories['Bowler'].ball;
-    function updateBallVisibility(){
-      if (!bowlerBall) return;
-      const p = players['Bowler'];
-      if (p) {
-        const isPreRelease = (p.mode === 'bowling' && p.phase < 0.6);
-        const isMoving = (p.mode === 'idle' || p.mode === 'walk');
-        bowlerBall.visible = (isPreRelease || isMoving);
-      }
+      dBend(p.skel, 'lThigh', -Math.sin(rc) * 0.8);
+      dBend(p.skel, 'rThigh', Math.sin(rc) * 0.8);
     }
 
     let globalT = 0, lastFrame = performance.now(), frameCount = 0;
@@ -390,9 +317,6 @@
       frameCount++;
 
       const doBones = (frameCount % BONE_EVERY === 0);
-      const ball = doBones ? getBallWorldPosition() : null;
-
-      updateBallVisibility();
 
       Object.keys(players).forEach(role => {
         const p = players[role];
@@ -400,51 +324,40 @@
         if (!p.loop && p.phase < 1){
           p.phase = Math.min(1, p.phase + dt * p.phaseSpeed);
           if (p.phase >= 1) setTimeout(() => { if (p.phase >= 1){ p.mode = 'idle'; p.action = null; p.phase = 0; } }, 250);
-        } else if (p.loop){
+        } else if (p.loop) {
           p.phase = (p.phase + dt * p.phaseSpeed) % 1;
         }
 
-        if (!doBones) return;
-
-        resetToRest(p);
-        
-        if (p.mode === 'idle') {
-          torso(p, globalT);
-          headNeck(p, globalT, ball);
+        if (doBones) {
+          resetToRest(p);
+          if (p.mode === 'idle') torso(p, globalT);
+          else if (p.mode === 'walk' || p.mode === 'running') runCycle(p);
+          
+          // Lock accessories post-animation update
+          lockAccessories(p);
         }
-        else if (p.mode === 'walk') runCycle(p);
-        else if (p.mode === 'bowling') bowlingAction(p);
-        else if (p.mode === 'batting'){ battingFootwork(p); battingSwing(p); }
       });
+      
+      const bowlerBall = accessories['Bowler'] && accessories['Bowler'].ball;
+      if(bowlerBall && players['Bowler']){
+          bowlerBall.visible = (players['Bowler'].mode === 'idle' || players['Bowler'].mode === 'walk');
+      }
     }
     requestAnimationFrame(tick);
-
-    function getBallWorldPosition(){
-      if (!window.StadiumView || !window.StadiumView.scene) return null;
-      const fball = window.StadiumView.scene.getObjectByName('flightBall');
-      return (fball && fball.visible) ? fball.position.clone() : null;
-    }
 
     function play(role, action, opts){
       const p = players[role];
       if (!p) return false;
       const A = {
         bowling:      { mode: 'bowling',  phaseSpeed: 0.35, loop: false },
-        batting:      { mode: 'batting',  phaseSpeed: 0.45, loop: false },
-        frontDrive:   { mode: 'batting',  action: 'frontDrive', phaseSpeed: 0.50, loop: false },
+        batting:      { mode: 'batting',  phaseSpeed: 0.45, loop: false }
       };
       if (!A[action]) return false;
-
-      p.mode = A[action].mode;
-      p.action = A[action].action || action;
-      p.phaseSpeed = A[action].phaseSpeed;
-      p.loop = A[action].loop;
-      p.phase = 0;
-      Object.assign(p.params, opts || {});
+      p.mode = A[action].mode; p.action = action; p.phaseSpeed = A[action].phaseSpeed; p.loop = A[action].loop; p.phase = 0;
       return true;
     }
 
-    window.PlayerControl = { players, roles: Object.keys(players), play };
-    console.log('[PlayerControl] ✅ Ready — T-Pose Killed');
+    window.PlayerControl = { players, play };
+    console.log('[PlayerControl] ✅ Ready — World Solver Active');
   }
 })();
