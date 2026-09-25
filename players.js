@@ -1,14 +1,14 @@
 /* ══════════════════════════════════════════════════════════════
-   StadiumView — Full Procedural Kinematics + Hand Attachment
-   • Bat and ball are attached to actual hand bones → follow arms
-   • All 9 action tables from the kinematic spec
-   • Bowler's ball auto-hides during delivery
-   • Public API: PlayerControl.play(role, action)
+   StadiumView — Kinematics v5.0 (real cricket stance)
+   • Batsmen at correct crease positions, side-on stance
+   • Bat attached to right hand, toe on the ground
+   • Bowler ball attached to right hand, hidden on release
+   • All 9 kinematic action tables preserved
    ══════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
 
-  console.log('%c[players.js] IIFE started — kinematics v4.0 (hand attach)', 'color:#00e676;font-weight:bold');
+  console.log('%c[players.js] IIFE started — kinematics v5.0 (cricket stance)', 'color:#00e676;font-weight:bold');
 
   const IS_MOBILE_PLAYERS = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
   const BONE_EVERY = IS_MOBILE_PLAYERS ? 3 : 1;
@@ -50,6 +50,31 @@
   }
 
   // ═════════════════════════════════════════════════════════════
+  //  REAL CRICKET STANCE OVERRIDES
+  //  Field coordinates: bowler at -z, striker at +z, stumps at z=±10.
+  //  Right-handed batsman → off side = +x, leg side = -x.
+  // ═════════════════════════════════════════════════════════════
+  const STANCE_OVERRIDES = {
+    'Striker': {
+      x: -0.32, z: 8.8,
+      rotY: Math.PI * 0.72,      // ~130° — side-on, chest towards off side
+      batTilt: 0.42,              // bat leans forward, toe on ground
+      headLook: true              // head tracks bowler
+    },
+    'Non-Striker': {
+      x: 1.05, z: -9.5,
+      rotY: -Math.PI * 0.22,      // slightly open, facing striker's end
+      batTilt: 0.35,
+      headLook: true
+    },
+    'Bowler': {
+      x: 0.6, z: -24,
+      rotY: 0,
+      batTilt: 0
+    }
+  };
+
+  // ═════════════════════════════════════════════════════════════
   //  SKELETON DISCOVERY
   // ═════════════════════════════════════════════════════════════
   const BONE_SLOTS = [
@@ -83,12 +108,8 @@
     if (/hand|wrist/.test(n) && !/finger|thumb|index|pinky|middle|ring/.test(n)){
       return L ? 'lHand' : R ? 'rHand' : null;
     }
-    if (/thigh|upperleg|upleg/.test(n) && !/lower|knee|calf|shin/.test(n)){
-      return L ? 'lThigh' : R ? 'rThigh' : null;
-    }
-    if (/^leg$|leg_l|leg_r|leg\.l|leg\.r|_leg$/.test(n) && !/lower|calf|shin/.test(n)){
-      return L ? 'lThigh' : R ? 'rThigh' : null;
-    }
+    if (/thigh|upperleg|upleg/.test(n) && !/lower|knee|calf|shin/.test(n)) return L ? 'lThigh' : R ? 'rThigh' : null;
+    if (/^leg$|leg_l|leg_r|leg\.l|leg\.r|_leg$/.test(n) && !/lower|calf|shin/.test(n)) return L ? 'lThigh' : R ? 'rThigh' : null;
     if (/knee|calf|shin|lowerleg|lower_leg/.test(n)) return L ? 'lShin' : R ? 'rShin' : null;
     if (/foot|ankle/.test(n) && !/toe/.test(n))     return L ? 'lFoot' : R ? 'rFoot' : null;
     return null;
@@ -106,24 +127,19 @@
     if (bones.length === 0){
       root.traverse(function(c){
         if (c.isSkinnedMesh && c.skeleton && c.skeleton.bones){
-          c.skeleton.bones.forEach(function(b){
-            if (bones.indexOf(b) < 0) bones.push(b);
-          });
+          c.skeleton.bones.forEach(function(b){ if (bones.indexOf(b) < 0) bones.push(b); });
         }
       });
     }
 
     const slots = {};
     BONE_SLOTS.forEach(function(s){ slots[s] = null; });
-
     bones.forEach(function(b){
       const slot = classifyBone(b);
       if (slot && !slots[slot]) slots[slot] = b;
     });
 
-    function parentOf(b){
-      return b && b.parent && (b.parent.isBone || b.parent.type === 'Bone') ? b.parent : null;
-    }
+    function parentOf(b){ return b && b.parent && (b.parent.isBone || b.parent.type === 'Bone') ? b.parent : null; }
     function childOf(b){
       if (!b) return null;
       for (let i = 0; i < b.children.length; i++){
@@ -150,9 +166,7 @@
     }
     if (!slots.chest && slots.spine){
       slots.spine.children.forEach(function(c){
-        if ((c.isBone || c.type === 'Bone') && !slots.chest && !/shoulder|arm|clav/i.test(c.name || '')){
-          slots.chest = c;
-        }
+        if ((c.isBone || c.type === 'Bone') && !slots.chest && !/shoulder|arm|clav/i.test(c.name || '')) slots.chest = c;
       });
       if (!slots.chest) slots.chest = slots.spine;
     }
@@ -208,7 +222,7 @@
   }
 
   // ═════════════════════════════════════════════════════════════
-  //  ARMS-DOWN bake (world-space bone pointing)
+  //  ARMS-DOWN bake
   // ═════════════════════════════════════════════════════════════
   const _v1 = new THREE.Vector3();
   const _v2 = new THREE.Vector3();
@@ -254,7 +268,7 @@
       .multiply(bone.quaternion);
 
     bone.quaternion.copy(_newLocalQ);
-    bone.updateMatrixWorld(true);
+    bone.updateWorldMatrix(true);
     return true;
   }
 
@@ -267,9 +281,7 @@
       const b = skel.slots[slot];
       if (!b) return;
       const sign = slot.charAt(0) === 'l' ? 1 : -1;
-      const tilt = new THREE.Quaternion().setFromEuler(
-        new THREE.Euler(0.12, 0, sign * 0.08, 'XYZ')
-      );
+      const tilt = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.14, 0, sign * 0.10, 'XYZ'));
       b.quaternion.multiply(tilt);
       b.updateMatrixWorld(true);
     });
@@ -304,85 +316,57 @@
     legResults.sort(function(a, b){ return Math.abs(b.bestZ) - Math.abs(a.bestZ); });
     skel.legSwingAxis = legResults[0].axis;
     skel.legSwingSign = legResults[0].sign;
-    skel.kneeAxis = X;
-    skel.kneeSign = -1;
   }
 
   // ═════════════════════════════════════════════════════════════
-  //  ATTACH BAT / BALL TO HAND BONES
+  //  HAND ATTACHMENT — bat and ball
   // ═════════════════════════════════════════════════════════════
-  // Bat grip offset in world-Y: bat origin (blade bottom) sits
-  // this far below the hand so the handle top meets the palm.
-  const BAT_GRIP_OFFSET = 0.96;
+  const BAT_LENGTH = 0.96;
 
-  function attachAccessories(playerObj, accessoryRef){
-    if (!accessoryRef) return;
-    const skel  = playerObj.skel;
-    const group = playerObj.group;
-    const role  = playerObj.role;
+  function attachBat(bat, hand, tiltRad){
+    if (!bat || !hand) return false;
+
+    hand.updateWorldMatrix(true, false);
+    const handPos = new THREE.Vector3();
+    hand.getWorldPosition(handPos);
+
+    if (bat.parent) bat.parent.remove(bat);
     const scene = window.StadiumView.scene;
+    scene.add(bat);
 
-    group.updateMatrixWorld(true);
+    // Rotate bat forward by tiltRad around world X axis
+    // (handle top tips toward the bowler, blade rests on ground)
+    const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(tiltRad, 0, 0, 'XYZ'));
+    bat.quaternion.copy(q);
 
-    // ─── BAT (Striker / Non-Striker) ─────────────────────────
-    if (accessoryRef.bat){
-      const bat  = accessoryRef.bat;
-      // Prefer the RIGHT hand if present, fall back to left
-      const hand = skel.slots.rHand || skel.slots.lHand;
+    // Bat local +y points from blade tip to handle top.
+    // Position so the handle top lands exactly at the hand.
+    const handleLocal = new THREE.Vector3(0, BAT_LENGTH, 0);
+    handleLocal.applyQuaternion(q);
+    bat.position.copy(handPos).sub(handleLocal);
 
-      if (hand){
-        hand.updateWorldMatrix(true, false);
+    bat.updateMatrixWorld(true);
+    hand.attach(bat);
+    return true;
+  }
 
-        const handPos = new THREE.Vector3();
-        hand.getWorldPosition(handPos);
+  function attachBall(ball, hand){
+    if (!ball || !hand) return false;
 
-        // Detach from the group
-        if (bat.parent) bat.parent.remove(bat);
-        scene.add(bat);
+    hand.updateWorldMatrix(true, false);
+    const handPos = new THREE.Vector3();
+    hand.getWorldPosition(handPos);
 
-        // Put the bat in world space so the grip meets the hand,
-        // blade pointing straight down. Bat's local origin is at
-        // the bottom of the blade, so we shift up by the grip offset.
-        bat.position.set(handPos.x, handPos.y - BAT_GRIP_OFFSET, handPos.z);
-        bat.quaternion.identity();
-        bat.scale.set(1, 1, 1);
-        bat.updateMatrixWorld(true);
+    if (ball.parent) ball.parent.remove(ball);
+    const scene = window.StadiumView.scene;
+    scene.add(ball);
 
-        // Reparent to the hand bone — world transform preserved,
-        // and now the bat follows the hand for the rest of time.
-        hand.attach(bat);
+    ball.position.copy(handPos);
+    ball.quaternion.identity();
+    ball.updateMatrixWorld(true);
 
-        playerObj.batAttached = true;
-        console.log('[PlayerControl] ' + role + ' · bat attached to hand "' + hand.name + '"');
-      } else {
-        console.warn('[PlayerControl] ' + role + ' · no hand bone — bat left in group');
-      }
-    }
-
-    // ─── BALL (Bowler) ───────────────────────────────────────
-    if (accessoryRef.ball){
-      const ball = accessoryRef.ball;
-      const hand = skel.slots.rHand || skel.slots.lHand;
-
-      if (hand){
-        hand.updateWorldMatrix(true, false);
-
-        const handPos = new THREE.Vector3();
-        hand.getWorldPosition(handPos);
-
-        if (ball.parent) ball.parent.remove(ball);
-        scene.add(ball);
-
-        ball.position.copy(handPos);
-        ball.quaternion.identity();
-        ball.updateMatrixWorld(true);
-
-        hand.attach(ball);
-
-        playerObj.ballAttached = true;
-        console.log('[PlayerControl] ' + role + ' · ball attached to hand "' + hand.name + '"');
-      }
-    }
+    hand.attach(ball);
+    return true;
   }
 
   // ═════════════════════════════════════════════════════════════
@@ -394,19 +378,25 @@
       console.warn('[PlayerControl] ' + role + ': no bones');
       return null;
     }
+
+    // Apply stance override BEFORE arms-down bake so world matrices are clean
+    const stance = STANCE_OVERRIDES[role];
+    if (stance){
+      group.position.x = stance.x;
+      group.position.z = stance.z;
+      group.rotation.y = stance.rotY;
+      group.updateMatrixWorld(true);
+    }
+
     const armsBaked = bakeArmsDown(skel);
     calibrateRig(skel);
 
     const playerObj = {
-      role, group, skel,
-      armsBaked,
+      role, group, skel, armsBaked,
       batAttached: false,
       ballAttached: false,
-      mode: 'idle',
-      action: null,
-      phase: 0,
-      phaseSpeed: 1,
-      loop: true,
+      stance: stance || null,
+      mode: 'idle', action: null, phase: 0, phaseSpeed: 1, loop: true,
       params: {},
       home: {
         x: group.position.x,
@@ -416,7 +406,30 @@
       }
     };
 
-    attachAccessories(playerObj, accessoryRef);
+    // Attach bat and ball AFTER stance override
+    group.updateMatrixWorld(true);
+
+    if (accessoryRef && accessoryRef.bat){
+      const hand = skel.slots.rHand || skel.slots.lHand;
+      if (hand){
+        const tilt = (stance && stance.batTilt) || 0.4;
+        if (attachBat(accessoryRef.bat, hand, tilt)){
+          playerObj.batAttached = true;
+          console.log('[PlayerControl] ' + role + ' · bat attached to "' + hand.name + '" tilt=' + tilt.toFixed(2));
+        }
+      }
+    }
+
+    if (accessoryRef && accessoryRef.ball){
+      const hand = skel.slots.rHand || skel.slots.lHand;
+      if (hand){
+        if (attachBall(accessoryRef.ball, hand)){
+          playerObj.ballAttached = true;
+          console.log('[PlayerControl] ' + role + ' · ball attached to "' + hand.name + '"');
+        }
+      }
+    }
+
     return playerObj;
   }
 
@@ -448,8 +461,7 @@
       console.warn('[PlayerControl] no valid players');
       return;
     }
-    console.log('[PlayerControl] total ' + totalBones + ' bones across ' +
-                Object.keys(players).length + ' players');
+    console.log('[PlayerControl] total ' + totalBones + ' bones across ' + Object.keys(players).length + ' players');
 
     // ═══════════════════════════════════════════════════════════
     //  KINEMATIC TABLES
@@ -461,22 +473,22 @@
     const _qa = new THREE.Quaternion();
     const _qb = new THREE.Quaternion();
 
-    function applyDeltaX(skel, slot, angle, restQ){
-      const b = skel.slots[slot]; if (!b) return;
-      const base = restQ || skel.rest[slot]; if (!base) return;
-      _qa.setFromAxisAngle(X, angle); _qb.copy(base).multiply(_qa);
+    function dX(sk, slot, ang, rest){
+      const b = sk.slots[slot]; if (!b) return;
+      const base = rest || sk.rest[slot]; if (!base) return;
+      _qa.setFromAxisAngle(X, ang); _qb.copy(base).multiply(_qa);
       b.quaternion.copy(_qb);
     }
-    function applyDeltaY(skel, slot, angle, restQ){
-      const b = skel.slots[slot]; if (!b) return;
-      const base = restQ || skel.rest[slot]; if (!base) return;
-      _qa.setFromAxisAngle(Y, angle); _qb.copy(base).multiply(_qa);
+    function dY(sk, slot, ang, rest){
+      const b = sk.slots[slot]; if (!b) return;
+      const base = rest || sk.rest[slot]; if (!base) return;
+      _qa.setFromAxisAngle(Y, ang); _qb.copy(base).multiply(_qa);
       b.quaternion.copy(_qb);
     }
-    function applyDeltaZ(skel, slot, angle, restQ){
-      const b = skel.slots[slot]; if (!b) return;
-      const base = restQ || skel.rest[slot]; if (!base) return;
-      _qa.setFromAxisAngle(Z, angle); _qb.copy(base).multiply(_qa);
+    function dZ(sk, slot, ang, rest){
+      const b = sk.slots[slot]; if (!b) return;
+      const base = rest || sk.rest[slot]; if (!base) return;
+      _qa.setFromAxisAngle(Z, ang); _qb.copy(base).multiply(_qa);
       b.quaternion.copy(_qb);
     }
 
@@ -492,20 +504,32 @@
     function headNeck(p, t, ball){
       const sk = p.skel;
       if (p.mode === 'idle'){
-        applyDeltaX(sk, 'neck', Math.sin(t * 1.5) * 0.05);
-        applyDeltaY(sk, 'head', Math.sin(t * 0.5) * 0.15, sk.rest.head);
+        dX(sk, 'neck', Math.sin(t * 1.5) * 0.04);
+        dY(sk, 'head', Math.sin(t * 0.4) * 0.10, sk.rest.head);
+        // Batsmen track the bowler during idle
+        if (p.stance && p.stance.headLook){
+          const bowler = players['Bowler'];
+          if (bowler){
+            const hp = new THREE.Vector3(), bp = new THREE.Vector3();
+            if (sk.slots.head) sk.slots.head.getWorldPosition(hp);
+            bowler.group.getWorldPosition(bp);
+            const dx = bp.x - hp.x, dz = bp.z - hp.z;
+            const yaw = Math.atan2(dx, dz) - p.group.rotation.y;
+            let y = yaw;
+            while (y >  Math.PI) y -= Math.PI * 2;
+            while (y < -Math.PI) y += Math.PI * 2;
+            dY(sk, 'neck', Math.max(-0.9, Math.min(0.9, y)), sk.rest.neck);
+          }
+        }
       } else if (p.mode === 'running' || p.mode === 'walk'){
-        applyDeltaZ(sk, 'neck', Math.sin(p.phase * 12) * 0.04);
+        dZ(sk, 'neck', Math.sin(p.phase * 12) * 0.04);
       }
       if (ball && (p.mode === 'batting' || p.mode === 'keeping' || p.mode === 'bowling')){
         const hp = new THREE.Vector3();
         if (sk.slots.head) sk.slots.head.getWorldPosition(hp);
         const dx = ball.x - hp.x, dy = ball.y - hp.y, dz = ball.z - hp.z;
-        const yaw   = Math.atan2(dx, dz);
-        const dist  = Math.hypot(dx, dz);
-        const pitch = Math.atan2(dy, dist);
-        applyDeltaY(sk, 'neck', Math.max(-0.7, Math.min(0.7, yaw)));
-        applyDeltaX(sk, 'head', Math.max(-0.5, Math.min(0.5, pitch)));
+        dY(sk, 'neck', Math.max(-0.7, Math.min(0.7, Math.atan2(dx, dz))));
+        dX(sk, 'head', Math.max(-0.5, Math.min(0.5, Math.atan2(dy, Math.hypot(dx, dz)))));
       }
     }
 
@@ -513,22 +537,27 @@
     function torso(p, t){
       const sk = p.skel;
       if (p.mode === 'idle'){
-        applyDeltaX(sk, 'chest', Math.sin(t * 2) * 0.02);
+        dX(sk, 'chest', Math.sin(t * 2) * 0.02);
+        // Batsman sway — subtle side-to-side
+        if (p.stance){
+          const sway = Math.sin(t * 0.7) * 0.03;
+          dZ(sk, 'spine', sway);
+        }
       } else if (p.mode === 'running' || p.mode === 'walk'){
         const rc = p.phase * 12;
-        applyDeltaX(sk, 'spine', 0.25 + Math.sin(rc) * 0.05);
-        applyDeltaY(sk, 'spine', -Math.sin(rc) * 0.15, sk.rest.spine);
-        applyDeltaZ(sk, 'spine', Math.sin(p.phase * 6) * 0.08);
+        dX(sk, 'spine', 0.25 + Math.sin(rc) * 0.05);
+        dY(sk, 'spine', -Math.sin(rc) * 0.15, sk.rest.spine);
+        dZ(sk, 'spine', Math.sin(p.phase * 6) * 0.08);
         p.group.position.y = p.home.y + Math.abs(Math.sin(rc)) * 0.08;
       } else if (p.mode === 'bowling'){
-        applyDeltaZ(sk, 'spine', Math.sin(p.phase * Math.PI) * 0.4);
+        dZ(sk, 'spine', Math.sin(p.phase * Math.PI) * 0.4);
       } else if (p.mode === 'batting'){
-        applyDeltaY(sk, 'spine', -0.5 + p.phase * 1.2);
+        dY(sk, 'spine', -0.5 + p.phase * 1.2);
       } else if (p.mode === 'throw'){
-        applyDeltaX(sk, 'spine', Math.pow(p.phase, 2) * 0.5);
+        dX(sk, 'spine', Math.pow(p.phase, 2) * 0.5);
       } else if (p.mode === 'disappointed'){
-        applyDeltaX(sk, 'spine', 0.4);
-        applyDeltaX(sk, 'neck', 0.5);
+        dX(sk, 'spine', 0.4);
+        dX(sk, 'neck', 0.5);
       }
     }
 
@@ -536,28 +565,29 @@
     function runCycle(p){
       const sk = p.skel;
       const rc = p.phase * 12;
-
-      applyDeltaX(sk, 'lUpperArm', -Math.sin(rc) * 0.8);
-      applyDeltaX(sk, 'rUpperArm',  Math.sin(rc) * 0.8);
-      applyDeltaX(sk, 'lForeArm', -Math.max(0.1, Math.sin(rc)) * 1.2, sk.rest.lForeArm);
-      applyDeltaX(sk, 'rForeArm', -Math.max(0.1, -Math.sin(rc)) * 1.2, sk.rest.rForeArm);
-      applyDeltaZ(sk, 'lHand',  Math.sin(rc) * 0.1);
-      applyDeltaZ(sk, 'rHand', -Math.sin(rc) * 0.1);
-
-      applyDeltaX(sk, 'lThigh',  Math.sin(rc) * 0.6);
-      applyDeltaX(sk, 'rThigh', -Math.sin(rc) * 0.6);
-      applyDeltaX(sk, 'lShin', Math.max(0,  Math.sin(rc + 0.5)) * 1.1, sk.rest.lShin);
-      applyDeltaX(sk, 'rShin', Math.max(0, -Math.sin(rc + 0.5)) * 1.1, sk.rest.rShin);
-      applyDeltaX(sk, 'lFoot',  Math.cos(rc) * 0.2, sk.rest.lFoot);
-      applyDeltaX(sk, 'rFoot', -Math.cos(rc) * 0.2, sk.rest.rFoot);
+      dX(sk, 'lUpperArm', -Math.sin(rc) * 0.8);
+      dX(sk, 'rUpperArm',  Math.sin(rc) * 0.8);
+      dX(sk, 'lForeArm', -Math.max(0.1, Math.sin(rc)) * 1.2, sk.rest.lForeArm);
+      dX(sk, 'rForeArm', -Math.max(0.1, -Math.sin(rc)) * 1.2, sk.rest.rForeArm);
+      dX(sk, 'lThigh',  Math.sin(rc) * 0.6);
+      dX(sk, 'rThigh', -Math.sin(rc) * 0.6);
+      dX(sk, 'lShin', Math.max(0,  Math.sin(rc + 0.5)) * 1.1, sk.rest.lShin);
+      dX(sk, 'rShin', Math.max(0, -Math.sin(rc + 0.5)) * 1.1, sk.rest.rShin);
+      dX(sk, 'lFoot',  Math.cos(rc) * 0.2, sk.rest.lFoot);
+      dX(sk, 'rFoot', -Math.cos(rc) * 0.2, sk.rest.rFoot);
     }
 
-    // 5. BOWLING
+    // 5. BOWLING — real cricket run-up (ball in right hand, arm circles)
     function bowlingAction(p){
       const sk = p.skel;
-      // Right arm windmill — bat/ball follow because they're children of the hand
-      applyDeltaX(sk, 'rUpperArm', p.phase * Math.PI * 2);
-      applyDeltaX(sk, 'lUpperArm', -Math.sin(p.phase * Math.PI) * 1.5);
+      const a = p.phase;
+      // Run-up strides handled by 'walk' before delivery
+      // Arm goes from side → forward → over the top → release
+      dX(sk, 'rUpperArm', a * Math.PI * 2, sk.rest.rUpperArm);
+      dX(sk, 'lUpperArm', -Math.sin(a * Math.PI) * 1.4, sk.rest.lUpperArm);
+      dX(sk, 'rForeArm', -Math.max(0, Math.sin(a * Math.PI * 2)) * 0.6, sk.rest.rForeArm);
+      dZ(sk, 'spine', Math.sin(a * Math.PI) * 0.35);
+      dX(sk, 'spine', -0.15 + a * 0.3);
     }
 
     // 5. CATCHING
@@ -567,13 +597,13 @@
       const hp = new THREE.Vector3();
       p.group.getWorldPosition(hp);
       const dist = hp.distanceTo(ball);
-      applyDeltaX(sk, 'lUpperArm', -Math.PI * 0.55);
-      applyDeltaX(sk, 'rUpperArm', -Math.PI * 0.55);
-      applyDeltaZ(sk, 'lUpperArm', -0.3);
-      applyDeltaZ(sk, 'rUpperArm',  0.3);
+      dX(sk, 'lUpperArm', -Math.PI * 0.55);
+      dX(sk, 'rUpperArm', -Math.PI * 0.55);
+      dZ(sk, 'lUpperArm', -0.3);
+      dZ(sk, 'rUpperArm',  0.3);
       const bend = Math.min(1.5, 1 / Math.max(0.2, dist));
-      applyDeltaX(sk, 'lForeArm', -bend, sk.rest.lForeArm);
-      applyDeltaX(sk, 'rForeArm', -bend, sk.rest.rForeArm);
+      dX(sk, 'lForeArm', -bend, sk.rest.lForeArm);
+      dX(sk, 'rForeArm', -bend, sk.rest.rForeArm);
     }
 
     // 6. BATTING FOOTWORK
@@ -581,31 +611,35 @@
       const sk = p.skel;
       const a = p.phase;
       if (p.action === 'frontDrive'){
-        applyDeltaX(sk, 'lThigh',  Math.sin(a * Math.PI) * 0.6);
-        applyDeltaX(sk, 'rShin',   a * 0.4, sk.rest.rShin);
+        dX(sk, 'lThigh',  Math.sin(a * Math.PI) * 0.6);
+        dX(sk, 'rShin',   a * 0.4, sk.rest.rShin);
       } else if (p.action === 'backPunch'){
-        applyDeltaX(sk, 'rThigh', -Math.sin(a * Math.PI) * 0.3);
+        dX(sk, 'rThigh', -Math.sin(a * Math.PI) * 0.3);
         p.group.position.y = p.home.y + a * 0.1;
       } else if (p.action === 'duck'){
         p.group.position.y = p.home.y - Math.sin(a * Math.PI) * 0.6;
-        applyDeltaX(sk, 'neck', Math.sin(a * Math.PI) * 0.5);
+        dX(sk, 'neck', Math.sin(a * Math.PI) * 0.5);
       } else if (p.action === 'leave'){
         const lift = Math.min(a * 2, 1) * (Math.PI / 1.5);
-        applyDeltaZ(sk, 'lUpperArm', -lift);
-        applyDeltaZ(sk, 'rUpperArm',  lift);
+        dZ(sk, 'lUpperArm', -lift);
+        dZ(sk, 'rUpperArm',  lift);
       }
     }
 
     function battingSwing(p){
       const sk = p.skel;
       const a = p.phase;
-      // Arms lift + swing — bat follows the right hand
-      applyDeltaZ(sk, 'lUpperArm', Math.sin(a * Math.PI) * 0.8);
-      applyDeltaZ(sk, 'rUpperArm', Math.sin(a * Math.PI) * 0.6);
-      applyDeltaX(sk, 'rUpperArm', -Math.sin(a * Math.PI) * 0.5);
-      if (a > 0.6){
-        applyDeltaY(sk, 'lHand', Math.PI);
-        applyDeltaY(sk, 'rHand', Math.PI);
+      // Backlift then swing
+      if (a < 0.4){
+        const q = a / 0.4;
+        dX(sk, 'rUpperArm', 0.6 * q, sk.rest.rUpperArm);
+        dX(sk, 'lUpperArm', 0.4 * q, sk.rest.lUpperArm);
+      } else {
+        const q = (a - 0.4) / 0.6;
+        dX(sk, 'rUpperArm', 0.6 - 1.8 * q, sk.rest.rUpperArm);
+        dX(sk, 'lUpperArm', 0.4 - 1.2 * q, sk.rest.lUpperArm);
+        dX(sk, 'rForeArm', -1.0 * Math.sin(q * Math.PI), sk.rest.rForeArm);
+        dX(sk, 'lForeArm', -0.8 * Math.sin(q * Math.PI), sk.rest.lForeArm);
       }
     }
 
@@ -613,9 +647,9 @@
     function throwAction(p){
       const sk = p.skel;
       const a = p.phase;
-      applyDeltaX(sk, 'rUpperArm', -Math.cos(a * Math.PI) * 1.5);
+      dX(sk, 'rUpperArm', -Math.cos(a * Math.PI) * 1.5, sk.rest.rUpperArm);
       const elbow = a < 0.5 ? 1.5 : Math.max(0, 1.5 - a * 3);
-      applyDeltaX(sk, 'rForeArm', elbow, sk.rest.rForeArm);
+      dX(sk, 'rForeArm', elbow, sk.rest.rForeArm);
     }
     function keeperDive(p){
       const sk = p.skel;
@@ -623,11 +657,11 @@
       const dir = p.params.diveDirection || 1;
       p.group.position.x += dir * a * 0.6;
       p.group.position.y = p.home.y + Math.sin(a * Math.PI) * 0.4;
-      applyDeltaZ(sk, 'spine', dir * a * (Math.PI / 2));
+      dZ(sk, 'spine', dir * a * (Math.PI / 2));
     }
     function stumping(p){
       const sk = p.skel;
-      applyDeltaY(sk, 'rUpperArm', p.phase * (Math.PI / 1.5));
+      dY(sk, 'rUpperArm', p.phase * (Math.PI / 1.5));
     }
 
     // 8. UMPIRE SIGNALS
@@ -635,21 +669,21 @@
       const sk = p.skel;
       const s = p.phase;
       if (p.action === 'out'){
-        applyDeltaX(sk, 'rUpperArm', -Math.min(s * 2.5, 1) * Math.PI);
+        dX(sk, 'rUpperArm', -Math.min(s * 2.5, 1) * Math.PI, sk.rest.rUpperArm);
       } else if (p.action === 'six'){
         const a = Math.sin(s * (Math.PI / 2)) * Math.PI;
-        applyDeltaX(sk, 'lUpperArm', -a);
-        applyDeltaX(sk, 'rUpperArm', -a);
+        dX(sk, 'lUpperArm', -a, sk.rest.lUpperArm);
+        dX(sk, 'rUpperArm', -a, sk.rest.rUpperArm);
       } else if (p.action === 'four'){
-        applyDeltaY(sk, 'rUpperArm', Math.sin(s * Math.PI * 6) * 0.5);
+        dY(sk, 'rUpperArm', Math.sin(s * Math.PI * 6) * 0.5, sk.rest.rUpperArm);
       } else if (p.action === 'wide'){
-        applyDeltaZ(sk, 'lUpperArm', -Math.PI/2);
-        applyDeltaZ(sk, 'rUpperArm',  Math.PI/2);
+        dZ(sk, 'lUpperArm', -Math.PI/2, sk.rest.lUpperArm);
+        dZ(sk, 'rUpperArm',  Math.PI/2, sk.rest.rUpperArm);
       } else if (p.action === 'noball'){
-        applyDeltaZ(sk, 'rUpperArm', -Math.PI/2);
+        dZ(sk, 'rUpperArm', -Math.PI/2, sk.rest.rUpperArm);
       } else if (p.action === 'dead'){
-        applyDeltaY(sk, 'lHand', Math.sin(s * Math.PI * 4) * 0.4);
-        applyDeltaY(sk, 'rHand', Math.sin(s * Math.PI * 4) * 0.4);
+        dY(sk, 'lHand', Math.sin(s * Math.PI * 4) * 0.4);
+        dY(sk, 'rHand', Math.sin(s * Math.PI * 4) * 0.4);
       }
     }
 
@@ -658,39 +692,37 @@
       const sk = p.skel;
       if (p.action === 'helmet'){
         const a = Math.min(1, p.phase * 2) * (1 - Math.max(0, (p.phase - 0.7) / 0.3));
-        applyDeltaX(sk, 'lUpperArm', -Math.PI * 0.9 * a);
-        applyDeltaX(sk, 'lForeArm',  -Math.PI * 0.5 * a, sk.rest.lForeArm);
+        dX(sk, 'lUpperArm', -Math.PI * 0.9 * a, sk.rest.lUpperArm);
+        dX(sk, 'lForeArm',  -Math.PI * 0.5 * a, sk.rest.lForeArm);
       } else if (p.action === 'shine'){
-        applyDeltaY(sk, 'rHand', Math.sin(t * 15) * 0.4);
+        dY(sk, 'rHand', Math.sin(t * 15) * 0.4);
       } else if (p.action === 'stretch'){
         const s = Math.sin(t) * 0.3;
-        applyDeltaX(sk, 'lShin', Math.abs(s), sk.rest.lShin);
-        applyDeltaX(sk, 'rShin', Math.abs(s), sk.rest.rShin);
+        dX(sk, 'lShin', Math.abs(s), sk.rest.lShin);
+        dX(sk, 'rShin', Math.abs(s), sk.rest.rShin);
       } else if (p.action === 'celebrate'){
         p.group.position.y = p.home.y + Math.max(0, Math.sin(t * Math.PI * 2)) * 0.6;
-        applyDeltaZ(sk, 'lUpperArm', Math.sin(t * Math.PI * 4) * 0.8);
-        applyDeltaZ(sk, 'rUpperArm', -Math.sin(t * Math.PI * 4) * 0.8);
+        dZ(sk, 'lUpperArm', Math.sin(t * Math.PI * 4) * 0.8);
+        dZ(sk, 'rUpperArm', -Math.sin(t * Math.PI * 4) * 0.8);
       }
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  BALL VISIBILITY — bowler's hand-ball only visible at rest/runup
+    //  BALL VISIBILITY — hide when flightBall is active
     // ═══════════════════════════════════════════════════════════
     const bowlerBall = accessories['Bowler'] && accessories['Bowler'].ball;
     function updateBallVisibility(){
       if (!bowlerBall) return;
       const phase = (window.StadiumAnim && window.StadiumAnim.currentPhase)
                   ? window.StadiumAnim.currentPhase() : 'idle';
-      const showPhases = ['idle','guard','mark_runup','runup'];
-      bowlerBall.visible = showPhases.indexOf(phase) >= 0;
+      const show = ['idle','guard','mark_runup','runup'].indexOf(phase) >= 0;
+      bowlerBall.visible = show;
     }
 
     // ═══════════════════════════════════════════════════════════
     //  MAIN TICKER
     // ═══════════════════════════════════════════════════════════
-    let globalT = 0;
-    let lastFrame = performance.now();
-    let frameCount = 0;
+    let globalT = 0, lastFrame = performance.now(), frameCount = 0;
 
     function tick(now){
       requestAnimationFrame(tick);
@@ -702,7 +734,6 @@
       const doBones = (frameCount % BONE_EVERY === 0);
       const ball = doBones ? getBallWorldPosition() : null;
 
-      // Ball visibility toggle (cheap — every frame is fine)
       updateBallVisibility();
 
       Object.keys(players).forEach(function(role){
@@ -736,10 +767,6 @@
         else if (p.mode === 'signal')                  umpireSignal(p);
         else if (p.mode === 'ambient')                 ambient(p, globalT);
         else if (p.mode === 'disappointed'){ /* torso handles it */ }
-        else if (p.mode === 'idle'){
-          applyDeltaX(sk, 'lForeArm', -0.15, sk.rest.lForeArm);
-          applyDeltaX(sk, 'rForeArm', -0.15, sk.rest.rForeArm);
-        }
       });
     }
     requestAnimationFrame(tick);
@@ -814,20 +841,14 @@
     if (!toast){
       toast = document.createElement('div');
       toast.id = 'pc-toast';
-      toast.style.cssText =
-        'position:fixed;bottom:92px;left:50%;transform:translateX(-50%);z-index:400;' +
-        'background:rgba(8,8,12,.9);color:#00e676;border-left:3px solid #00e676;' +
-        'border-radius:3px;padding:8px 14px;font-family:JetBrains Mono,monospace;' +
-        'font-size:11px;letter-spacing:1.5px;text-transform:uppercase;' +
-        'pointer-events:none;opacity:0;transition:opacity .25s;';
       document.body.appendChild(toast);
     }
     let toastT = 0;
     function showToast(msg){
       toast.textContent = msg;
-      toast.style.opacity = '1';
+      toast.classList.add('show');
       clearTimeout(toastT);
-      toastT = setTimeout(function(){ toast.style.opacity = '0'; }, 1600);
+      toastT = setTimeout(function(){ toast.classList.remove('show'); }, 1600);
     }
     window.showToast = showToast;
 
@@ -882,7 +903,6 @@
         p.mode = 'idle'; p.action = null; p.phase = 0;
       });
     }
-
     function resetAll(){
       Object.keys(players).forEach(function(r){
         const p = players[r];
@@ -892,7 +912,6 @@
       });
       if (window.StadiumAnim && window.StadiumAnim.resume) window.StadiumAnim.resume();
     }
-
     function moveTo(role, x, z, rotY, dur){
       const p = players[role];
       if (!p) return false;
@@ -945,9 +964,7 @@
       },
       reapplyArms: function(){
         let count = 0;
-        Object.keys(players).forEach(function(r){
-          count += bakeArmsDown(players[r].skel);
-        });
+        Object.keys(players).forEach(function(r){ count += bakeArmsDown(players[r].skel); });
         console.log('[PlayerControl] arms-down re-applied to ' + count + ' bones');
         return count;
       }
@@ -955,9 +972,6 @@
 
     console.log('[PlayerControl] ✅ Ready — ' + Object.keys(players).length + ' players');
     console.log('[PlayerControl] Tab=cycle · WASD=move · Esc=reset');
-    console.log('[PlayerControl] Actions: bowling, batting, frontDrive, backPunch, duck, leave,');
-    console.log('[PlayerControl]          catching, throw, dive, stumping, out, six, four, wide,');
-    console.log('[PlayerControl]          noball, dead, helmet, shine, stretch, celebrate, disappointed');
     showToast('Tab=cycle · WASD=move · Esc=reset');
   }
 
