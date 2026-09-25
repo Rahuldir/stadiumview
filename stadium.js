@@ -1,5 +1,8 @@
 /* ══════════════════════════════════════════════════════════════
-   StadiumView — clean, no duplicates
+   StadiumView — real-world dimensions
+   Player  1.8m  |  Bat  0.96m  |  Ball  0.072m  |  Stumps  0.71m
+   Pitch  20.12m |  Ground  200m diameter
+   Ring markers for far-camera visibility
    ══════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
@@ -11,30 +14,36 @@
     'models/p4.glb','models/p5.glb','models/p6.glb','models/p7.glb'
   ];
 
-  const STADIUM_SIZE = 200;
-  const PLAYER_SIZE  = 1.9;
+  // ─── REAL-WORLD DIMENSIONS (metres) ─────────────────────────
+  const STADIUM_SIZE       = 200;     // overall stadium diameter
+  const PLAYER_HEIGHT      = 1.80;    // average cricketer
+  const BAT_LENGTH         = 0.96;    // ICC max
+  const BALL_DIAMETER      = 0.072;   // cricket ball
+  const STUMPS_HEIGHT      = 0.71;    // stump height
+  const PITCH_LENGTH       = 20.12;   // full pitch
+  const BOUNDARY_RADIUS    = 30;      // in-scope boundary
 
   const ROT_STADIUM = { x: 0, y: 0, z: 0 };
 
   const FIELD_POSITIONS = [
-    { role: 'Striker',            x: 0.4,   y: 0, z: 9,     rotY: Math.PI,      hasBat: true },
-    { role: 'Non-Striker',        x: -0.4,  y: 0, z: -9,    rotY: 0,            hasBat: true },
-    { role: 'Umpire (Bowl End)',  x: -1.0,  y: 0, z: -11.5, rotY: 0 },
-    { role: 'Umpire (Sq Leg)',    x: -14,   y: 0, z: 0,     rotY: Math.PI * 0.5 },
-    { role: 'Bowler',             x: 0,     y: 0, z: -14,   rotY: 0,            hasBall: true },
-    { role: 'Keeper',             x: 0,     y: 0, z: 13,    rotY: Math.PI },
-    { role: 'Slip',               x: 3,     y: 0, z: 14.5,  rotY: Math.PI },
-    { role: 'Point',              x: 15,    y: 0, z: 6,     rotY: Math.PI * 0.75 },
-    { role: 'Cover',              x: 18,    y: 0, z: -3,    rotY: Math.PI * 0.55 },
-    { role: 'Mid-Off',            x: 10,    y: 0, z: -10,   rotY: 0 },
-    { role: 'Mid-On',             x: -10,   y: 0, z: -10,   rotY: 0 },
-    { role: 'Mid-Wicket',         x: -18,   y: 0, z: -3,    rotY: Math.PI * 1.45 },
-    { role: 'Square Leg',         x: -16,   y: 0, z: 6,     rotY: Math.PI * 1.25 },
-    { role: 'Fine Leg',           x: -22,   y: 0, z: 12,    rotY: Math.PI * 1.2 },
-    { role: 'Third Man',          x: 12,    y: 0, z: 14,    rotY: Math.PI }
+    { role: 'Striker',            x: 0.4,   y: 0, z: 9,     rotY: Math.PI,      hasBat: true,  ringColor: 0x22d3ee },
+    { role: 'Non-Striker',        x: -0.4,  y: 0, z: -9,    rotY: 0,            hasBat: true,  ringColor: 0x22d3ee },
+    { role: 'Umpire (Bowl End)',  x: -1.0,  y: 0, z: -11.5, rotY: 0,                           ringColor: 0xa855f7 },
+    { role: 'Umpire (Sq Leg)',    x: -14,   y: 0, z: 0,     rotY: Math.PI * 0.5,               ringColor: 0xa855f7 },
+    { role: 'Bowler',             x: 0,     y: 0, z: -14,   rotY: 0,            hasBall: true, ringColor: 0xe10600 },
+    { role: 'Keeper',             x: 0,     y: 0, z: 13,    rotY: Math.PI,                     ringColor: 0xfbbf24 },
+    { role: 'Slip',               x: 3,     y: 0, z: 14.5,  rotY: Math.PI,                     ringColor: 0x00e676 },
+    { role: 'Point',              x: 15,    y: 0, z: 6,     rotY: Math.PI * 0.75,              ringColor: 0x00e676 },
+    { role: 'Cover',              x: 18,    y: 0, z: -3,    rotY: Math.PI * 0.55,              ringColor: 0x00e676 },
+    { role: 'Mid-Off',            x: 10,    y: 0, z: -10,   rotY: 0,                           ringColor: 0x00e676 },
+    { role: 'Mid-On',             x: -10,   y: 0, z: -10,   rotY: 0,                           ringColor: 0x00e676 },
+    { role: 'Mid-Wicket',         x: -18,   y: 0, z: -3,    rotY: Math.PI * 1.45,              ringColor: 0x00e676 },
+    { role: 'Square Leg',         x: -16,   y: 0, z: 6,     rotY: Math.PI * 1.25,              ringColor: 0x00e676 },
+    { role: 'Fine Leg',           x: -22,   y: 0, z: 12,    rotY: Math.PI * 1.2,               ringColor: 0x00e676 },
+    { role: 'Third Man',          x: 12,    y: 0, z: 14,    rotY: Math.PI,                     ringColor: 0x00e676 }
   ];
 
-  // ─── SCENE (only ONE declaration — this was the bug) ─────────
+  // ─── SCENE ───────────────────────────────────────────────────
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x87b8e0);
   scene.fog = null;
@@ -113,15 +122,32 @@
   }
 
   // ─── HELPERS ─────────────────────────────────────────────────
-  function autoFit(model, targetSize){
-    if (!targetSize || targetSize <= 0) return 1;
+  // Scale so the model's HEIGHT (Y dimension) matches target, and
+  // the bottom sits at y = 0
+  function scaleToHeight(model, targetHeight){
+    model.updateMatrixWorld(true);
+    let box = new THREE.Box3().setFromObject(model);
+    let size = new THREE.Vector3();
+    box.getSize(size);
+    if (size.y === 0) return 1;
+    const scale = targetHeight / size.y;
+    model.scale.setScalar(scale);
+    model.updateMatrixWorld(true);
+    box = new THREE.Box3().setFromObject(model);
+    model.position.y -= box.min.y;
+    model.updateMatrixWorld(true);
+    return scale;
+  }
+
+  // Scale by largest dimension (for stadium)
+  function scaleToMaxDim(model, targetMax){
     model.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(model);
     const size = new THREE.Vector3();
     box.getSize(size);
     const maxDim = Math.max(size.x, size.y, size.z);
     if (maxDim === 0) return 1;
-    const scale = targetSize / maxDim;
+    const scale = targetMax / maxDim;
     model.scale.setScalar(scale);
     model.updateMatrixWorld(true);
     return scale;
@@ -129,8 +155,8 @@
 
   function bottomToZero(model){
     model.updateMatrixWorld(true);
-    const nb = new THREE.Box3().setFromObject(model);
-    model.position.y -= nb.min.y;
+    const box = new THREE.Box3().setFromObject(model);
+    model.position.y -= box.min.y;
   }
 
   function forceVisible(obj){
@@ -179,102 +205,95 @@
     return 0;
   }
 
-  // ─── EQUIPMENT ───────────────────────────────────────────────
+  // ─── EQUIPMENT (real dimensions) ─────────────────────────────
   function makeBat(){
+    // Real bat: 0.96m total, blade ~0.6m, handle ~0.36m
     const g = new THREE.Group();
     const bladeMat = new THREE.MeshStandardMaterial({ color: 0xd4b483, roughness: 0.75 });
     const handleMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.6 });
     const blade = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.60, 0.05), bladeMat);
     blade.position.y = 0.30;
     g.add(blade);
-    const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.30, 10), handleMat);
-    handle.position.y = 0.75;
+    const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.36, 10), handleMat);
+    handle.position.y = 0.78;
     g.add(handle);
     return g;
   }
 
   function makeBall(){
-    const mat = new THREE.MeshStandardMaterial({ color: 0x991b1b, roughness: 0.55, emissive: 0x330000, emissiveIntensity: 0.2 });
-    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.036, 16, 16), mat);
+    // Real ball: 7.2cm diameter = 0.036m radius
+    const r = BALL_DIAMETER / 2;
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0x991b1b,
+      roughness: 0.5,
+      emissive: 0x330000,
+      emissiveIntensity: 0.25
+    });
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 16), mat);
     const seamMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-    const seam = new THREE.Mesh(new THREE.TorusGeometry(0.036, 0.004, 6, 20), seamMat);
+    const seam = new THREE.Mesh(new THREE.TorusGeometry(r, 0.004, 6, 20), seamMat);
     seam.rotation.y = Math.PI / 2;
     ball.add(seam);
     return ball;
   }
 
   function makeStumps(){
+    // Real stumps: 0.71m tall, 0.038m wide, 3 of them
     const g = new THREE.Group();
     const mat = new THREE.MeshStandardMaterial({ color: 0xefe2c0, roughness: 0.7 });
     const bailMat = new THREE.MeshStandardMaterial({ color: 0xd4b483, roughness: 0.7 });
     [-0.11, 0, 0.11].forEach(function(x){
-      const s = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.71, 12), mat);
-      s.position.set(x, 0.355, 0);
+      const s = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.019, 0.019, STUMPS_HEIGHT, 12),
+        mat
+      );
+      s.position.set(x, STUMPS_HEIGHT / 2, 0);
       g.add(s);
     });
     [-0.055, 0.055].forEach(function(x){
-      const b = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.10, 8), bailMat);
+      const b = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.10, 8), bailMat);
       b.rotation.z = Math.PI / 2;
-      b.position.set(x, 0.72, 0);
+      b.position.set(x, STUMPS_HEIGHT + 0.01, 0);
       g.add(b);
     });
     return g;
   }
 
-  // ─── REPLAY SCREEN ───────────────────────────────────────────
-  function buildReplayScreen(x, z, rotY, fieldY){
-    const W = 25, H = 14, D = 0.6;
+  // ─── GROUND RING MARKERS ─────────────────────────────────────
+  function makeGroundMarker(x, z, color, fieldY){
     const group = new THREE.Group();
 
-    const frame = new THREE.Mesh(
-      new THREE.BoxGeometry(W + 1.2, H + 1.2, D),
-      new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.7, metalness: 0.3 })
+    // Flat ring at feet
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(0.9, 1.3, 24),
+      new THREE.MeshBasicMaterial({
+        color: color,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.9,
+        depthWrite: false
+      })
     );
-    group.add(frame);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = fieldY + 0.05;
+    group.add(ring);
 
-    const cvs = document.createElement('canvas');
-    cvs.width = 1024; cvs.height = 576;
-    const ctx = cvs.getContext('2d');
-
-    ctx.fillStyle = '#0a0e1a';
-    ctx.fillRect(0, 0, cvs.width, cvs.height);
-    ctx.fillStyle = '#e10600';
-    ctx.fillRect(0, 0, cvs.width, 10);
-    ctx.fillRect(0, cvs.height - 10, cvs.width, 10);
-
-    ctx.strokeStyle = 'rgba(255,255,255,.05)';
-    ctx.lineWidth = 1;
-    for (let i = 0; i < cvs.width + cvs.height; i += 40){
-      ctx.beginPath();
-      ctx.moveTo(i, 0); ctx.lineTo(i - cvs.height, cvs.height);
-      ctx.stroke();
-    }
-
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 110px Arial';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('CRICMAX', cvs.width / 2, 200);
-    ctx.fillStyle = '#00e676';
-    ctx.font = 'bold 80px Arial';
-    ctx.fillText('REPLAY', cvs.width / 2, 330);
-    ctx.fillStyle = '#7a8590';
-    ctx.font = 'bold 34px Arial';
-    ctx.fillText('LIVE · MATCH VIEWER', cvs.width / 2, 440);
-
-    const tex = new THREE.CanvasTexture(cvs);
-    const screen = new THREE.Mesh(
-      new THREE.PlaneGeometry(W, H),
-      new THREE.MeshBasicMaterial({ map: tex })
+    // Vertical beam so it's visible from any angle
+    const pole = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.05, 0.05, 3.0, 8),
+      new THREE.MeshBasicMaterial({
+        color: color,
+        transparent: true,
+        opacity: 0.5,
+        depthWrite: false
+      })
     );
-    screen.position.z = D / 2 + 0.05;
-    group.add(screen);
+    pole.position.y = fieldY + 1.5;
+    group.add(pole);
 
-    group.position.set(x, fieldY + H / 2 + 4, z);
-    group.rotation.y = rotY;
+    group.position.set(x, 0, z);
     scene.add(group);
-
-    console.log('[ReplayScreen] at (' + x + ',' + z + ')');
+    return group;
   }
 
   // ─── STADIUM ─────────────────────────────────────────────────
@@ -284,7 +303,7 @@
   function placeStadium(model){
     if (!model) return;
     model.rotation.set(ROT_STADIUM.x, ROT_STADIUM.y, ROT_STADIUM.z);
-    autoFit(model, STADIUM_SIZE);
+    scaleToMaxDim(model, STADIUM_SIZE);
     model.traverse(function(c){
       if (c.isMesh){ c.castShadow = false; c.receiveShadow = false; }
     });
@@ -326,12 +345,13 @@
       pm.rotation.set(0, 0, 0);
       pm.scale.set(1, 1, 1);
 
-      const scale = autoFit(pm, PLAYER_SIZE);
+      // Scale to real human height (1.8m)
+      const scale = scaleToHeight(pm, PLAYER_HEIGHT);
       const vis = forceVisible(pm);
-      bottomToZero(pm);
 
       group.add(pm);
 
+      // Real-sized bat in hands
       if (pos.hasBat){
         const bat = makeBat();
         bat.position.set(-0.35, 0.95, 0.25);
@@ -342,6 +362,7 @@
         accessoryRefs[pos.role].bat = bat;
       }
 
+      // Real-sized ball in bowler's hand
       if (pos.hasBall){
         const ball = makeBall();
         ball.position.set(0.35, 1.35, 0.20);
@@ -358,54 +379,12 @@
       scene.add(group);
       playerRefs[pos.role] = group;
 
-      // ─── Ground marker so fielders are visible from far ───
-      const roleColors = {
-        'Striker':     0x22d3ee,   // cyan
-        'Non-Striker': 0x22d3ee,
-        'Bowler':      0xe10600,   // red
-        'Keeper':      0xfbbf24,   // gold
-        'Umpire (Bowl End)': 0xa855f7,  // purple
-        'Umpire (Sq Leg)':   0xa855f7,
-        'Slip':        0x00e676,   // green
-        'Point':       0x00e676,
-        'Cover':       0x00e676,
-        'Mid-Off':     0x00e676,
-        'Mid-On':      0x00e676,
-        'Mid-Wicket':  0x00e676,
-        'Square Leg':  0x00e676,
-        'Fine Leg':    0x00e676,
-        'Third Man':   0x00e676
-      };
-      const ringColor = roleColors[pos.role] || 0x00e676;
+      // Ring marker so they're visible from far away
+      makeGroundMarker(pos.x, pos.z, pos.ringColor, fieldY);
 
-      const ring = new THREE.Mesh(
-        new THREE.RingGeometry(0.9, 1.3, 24),
-        new THREE.MeshBasicMaterial({
-          color: ringColor,
-          side: THREE.DoubleSide,
-          transparent: true,
-          opacity: 0.85,
-          depthWrite: false
-        })
-      );
-      ring.rotation.x = -Math.PI / 2;
-      ring.position.set(pos.x, fieldY + 0.05, pos.z);
-      scene.add(ring);
-
-      // Vertical pole so you can see them from side angles
-      const pole = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.06, 0.06, 3.5, 6),
-        new THREE.MeshBasicMaterial({
-          color: ringColor,
-          transparent: true,
-          opacity: 0.55
-        })
-      );
-      pole.position.set(pos.x, fieldY + 1.75, pos.z);
-      scene.add(pole);
-
-      console.log('[Player ' + pos.role + '] scale=' + scale.toFixed(3) + ' meshes=' + vis.meshCount);    }
-    console.log('[Players] placed 15 groups');
+      console.log('[Player ' + pos.role + '] height=1.80m scale=' + scale.toFixed(3) + ' meshes=' + vis.meshCount);
+    }
+    console.log('[Players] 15 placed with ring markers');
   }
 
   function setLoaderProgress(loaded, total){
@@ -441,9 +420,7 @@
 
     placeStadium(pick('stadium'));
 
-    buildReplayScreen( 55, 0, -Math.PI / 2, fieldY);
-    buildReplayScreen(-55, 0,  Math.PI / 2, fieldY);
-
+    // Stumps at both ends — real 0.71m tall
     const stumpsA = makeStumps();
     stumpsA.position.set(0, fieldY, 10);
     scene.add(stumpsA);
@@ -452,6 +429,71 @@
     stumpsB.position.set(0, fieldY, -10);
     scene.add(stumpsB);
 
+    // Replay screens
+    (function buildReplay(x, z, rotY){
+      const W = 25, H = 14, D = 0.6;
+      const g = new THREE.Group();
+      const frame = new THREE.Mesh(
+        new THREE.BoxGeometry(W + 1.2, H + 1.2, D),
+        new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.7, metalness: 0.3 })
+      );
+      g.add(frame);
+      const cvs = document.createElement('canvas');
+      cvs.width = 1024; cvs.height = 576;
+      const cx = cvs.getContext('2d');
+      cx.fillStyle = '#0a0e1a'; cx.fillRect(0, 0, cvs.width, cvs.height);
+      cx.fillStyle = '#e10600'; cx.fillRect(0, 0, cvs.width, 10); cx.fillRect(0, cvs.height - 10, cvs.width, 10);
+      cx.fillStyle = '#ffffff'; cx.font = 'bold 110px Arial';
+      cx.textAlign = 'center'; cx.textBaseline = 'middle';
+      cx.fillText('CRICMAX', cvs.width / 2, 200);
+      cx.fillStyle = '#00e676'; cx.font = 'bold 80px Arial';
+      cx.fillText('REPLAY', cvs.width / 2, 330);
+      cx.fillStyle = '#7a8590'; cx.font = 'bold 34px Arial';
+      cx.fillText('LIVE · MATCH VIEWER', cvs.width / 2, 440);
+      const tex = new THREE.CanvasTexture(cvs);
+      const screen = new THREE.Mesh(
+        new THREE.PlaneGeometry(W, H),
+        new THREE.MeshBasicMaterial({ map: tex })
+      );
+      screen.position.z = D / 2 + 0.05;
+      g.add(screen);
+      g.position.set(x, fieldY + H / 2 + 4, z);
+      g.rotation.y = rotY;
+      scene.add(g);
+    })(55, 0, -Math.PI / 2);
+    (function buildReplay(x, z, rotY){
+      const W = 25, H = 14, D = 0.6;
+      const g = new THREE.Group();
+      const frame = new THREE.Mesh(
+        new THREE.BoxGeometry(W + 1.2, H + 1.2, D),
+        new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.7, metalness: 0.3 })
+      );
+      g.add(frame);
+      const cvs = document.createElement('canvas');
+      cvs.width = 1024; cvs.height = 576;
+      const cx = cvs.getContext('2d');
+      cx.fillStyle = '#0a0e1a'; cx.fillRect(0, 0, cvs.width, cvs.height);
+      cx.fillStyle = '#e10600'; cx.fillRect(0, 0, cvs.width, 10); cx.fillRect(0, cvs.height - 10, cvs.width, 10);
+      cx.fillStyle = '#ffffff'; cx.font = 'bold 110px Arial';
+      cx.textAlign = 'center'; cx.textBaseline = 'middle';
+      cx.fillText('CRICMAX', cvs.width / 2, 200);
+      cx.fillStyle = '#00e676'; cx.font = 'bold 80px Arial';
+      cx.fillText('REPLAY', cvs.width / 2, 330);
+      cx.fillStyle = '#7a8590'; cx.font = 'bold 34px Arial';
+      cx.fillText('LIVE · MATCH VIEWER', cvs.width / 2, 440);
+      const tex = new THREE.CanvasTexture(cvs);
+      const screen = new THREE.Mesh(
+        new THREE.PlaneGeometry(W, H),
+        new THREE.MeshBasicMaterial({ map: tex })
+      );
+      screen.position.z = D / 2 + 0.05;
+      g.add(screen);
+      g.position.set(x, fieldY + H / 2 + 4, z);
+      g.rotation.y = rotY;
+      scene.add(g);
+    })(-55, 0, Math.PI / 2);
+
+    // Players
     const playerModels = PLAYER_FILES.map(function(_, i){
       return pick('p' + (i + 1));
     }).filter(function(m){ return m; });
@@ -475,10 +517,11 @@
       players: playerRefs,
       accessories: accessoryRefs,
       stumpsStriker: stumpsA,
-      stumpsBowler: stumpsB
+      stumpsBowler: stumpsB,
+      BOUNDARY_RADIUS: BOUNDARY_RADIUS
     };
 
-    console.log('[StadiumView] Ready. fieldY=' + fieldY.toFixed(2));
+    console.log('[StadiumView] Ready. Player 1.80m · Bat 0.96m · Ball 7.2cm · Stumps 71cm');
   }
 
   window.addEventListener('resize', function(){
