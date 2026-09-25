@@ -1,7 +1,6 @@
 /* ══════════════════════════════════════════════════════════════
-   StadiumView — real-world dimensions (FIXED SkinnedMesh bug)
+   StadiumView — real-world dimensions (Fixed Lighting & Colors)
    Player  1.8m  |  Bat  0.96m  |  Ball  0.072m  |  Stumps  0.71m
-   Pitch  20.12m |  Ground  200m diameter
    ══════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
@@ -54,19 +53,20 @@
   renderer.setSize(innerWidth, innerHeight);
   renderer.shadowMap.enabled = false;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.3;
+  // Lowered default exposure so things aren't washed out
+  renderer.toneMappingExposure = 1.0; 
   document.body.appendChild(renderer.domElement);
 
-  // ─── LIGHTS ──────────────────────────────────────────────────
-  scene.add(new THREE.AmbientLight(0xffffff, 2.0));
-  const hemi = new THREE.HemisphereLight(0xffffff, 0x88aa88, 1.5);
+  // ─── LIGHTS (Lowered baselines so Night mode works) ──────────
+  const ambient = new THREE.AmbientLight(0xffffff, 0.8);
+  scene.add(ambient);
+  
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x88aa88, 0.6);
   scene.add(hemi);
-  const sun = new THREE.DirectionalLight(0xffffff, 1.0);
+  
+  const sun = new THREE.DirectionalLight(0xffffff, 1.5);
   sun.position.set(80, 400, 80);
   scene.add(sun);
-  const fill = new THREE.DirectionalLight(0xffffff, 0.7);
-  fill.position.set(-80, 300, -80);
-  scene.add(fill);
 
   // ─── LOADER ──────────────────────────────────────────────────
   const loader = new THREE.GLTFLoader();
@@ -171,11 +171,8 @@
             if (typeof m.roughness === 'number') m.roughness = 0.75;
             if (typeof m.metalness === 'number') m.metalness = 0;
             m.side = THREE.DoubleSide;
-            if (m.emissive){
-              if (m.color) m.emissive.copy(m.color);
-              else m.emissive.setHex(0x333333);
-              m.emissiveIntensity = 0.35;
-            }
+            // FIXED: Removed the emissive glowing that made players washed out!
+            if (m.emissive) m.emissive.setHex(0x000000); 
             m.needsUpdate = true;
           });
         }
@@ -210,9 +207,7 @@
     const r = BALL_DIAMETER / 2;
     const mat = new THREE.MeshStandardMaterial({
       color: 0x991b1b,
-      roughness: 0.5,
-      emissive: 0x330000,
-      emissiveIntensity: 0.25
+      roughness: 0.5
     });
     const ball = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 16), mat);
     const seamMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
@@ -297,10 +292,7 @@
     const sz = new THREE.Vector3();
     box.getSize(sz);
     stadiumRadius = Math.max(sz.x, sz.z) * 0.6;
-    console.log('[Stadium] size: ' + sz.x.toFixed(1) + ' × ' + sz.y.toFixed(1) + ' × ' + sz.z.toFixed(1));
-
     fieldY = findFieldLevel(model);
-    console.log('[Raycast] grass at y = ' + fieldY.toFixed(2));
   }
 
   // ─── PLAYERS ─────────────────────────────────────────────────
@@ -308,8 +300,6 @@
   const accessoryRefs = {};
 
   function placePlayers(playersData){
-    let placedCount = 0;
-    
     playersData.forEach(function(pd){
       const src = pd.model;
       const pos = pd.pos;
@@ -318,13 +308,12 @@
       const group = new THREE.Group();
       group.name = 'PLAYER_' + pos.role.replace(/[^a-z0-9]/gi, '_');
 
-      // By using the fresh scene instance instead of .clone(), SkinnedMeshes won't break
       const pm = src;
       pm.position.set(0, 0, 0);
       pm.rotation.set(0, 0, 0);
       pm.scale.set(1, 1, 1);
 
-      const scale = scaleToHeight(pm, PLAYER_HEIGHT);
+      scaleToHeight(pm, PLAYER_HEIGHT);
       forceVisible(pm);
 
       group.add(pm);
@@ -347,9 +336,7 @@
         accessoryRefs[pos.role].ball = ball;
       }
 
-      // Prevents Three.js from accidentally hiding players/bats if the bounding box calculates incorrectly
       group.traverse(function(c){ c.frustumCulled = false; });
-
       group.rotation.y = pos.rotY || 0;
       group.position.x = pos.x;
       group.position.z = pos.z;
@@ -357,12 +344,8 @@
 
       scene.add(group);
       playerRefs[pos.role] = group;
-
       makeGroundMarker(pos.x, pos.z, pos.ringColor, fieldY);
-      placedCount++;
     });
-
-    console.log('[Players] ' + placedCount + ' loaded directly and placed. (SkinnedMesh bypass active)');
   }
 
   function setLoaderProgress(loaded, total){
@@ -378,7 +361,6 @@
       { key: 'stadium', url: STADIUM_FILE, type: 'stadium' }
     ];
     
-    // Create an independent loading task for EVERY position to avoid .clone() entirely
     FIELD_POSITIONS.forEach(function(pos, i){
       tasks.push({
         key: pos.role.replace(/[^a-z0-9]/gi, ''), 
@@ -474,7 +456,6 @@
       scene.add(g);
     })(-55, 0, Math.PI / 2);
 
-    // Feed the independently loaded models into the placement function
     const playerData = results.filter(function(r){ return r.type === 'player'; });
     placePlayers(playerData);
 
@@ -483,12 +464,14 @@
       if (el) el.classList.add('hide');
     }, 400);
 
+    // Exported ambient so controls can dim it
     window.StadiumView = {
       scene: scene,
       camera: camera,
       renderer: renderer,
       sun: sun,
       hemi: hemi,
+      ambient: ambient, 
       stadiumRadius: stadiumRadius,
       fieldY: fieldY,
       players: playerRefs,
@@ -498,7 +481,7 @@
       BOUNDARY_RADIUS: BOUNDARY_RADIUS
     };
 
-    console.log('[StadiumView] Ready. Player 1.80m · Bat 0.96m · Ball 7.2cm · Stumps 71cm');
+    console.log('[StadiumView] Ready.');
   }
 
   window.addEventListener('resize', function(){
