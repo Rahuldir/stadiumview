@@ -1,10 +1,11 @@
 /* ══════════════════════════════════════════════════════════════
-   StadiumView — Realistic Broadcast Edition (merged)
-   • Per-role model loading (7 files cycled across 15 roles)
+   StadiumView — Realistic Broadcast Edition (merged v2)
+   • Per-role model loading
    • Real-world dimensions (Player 1.8m, Bat 0.96m, Ball 7.2cm, Stumps 71cm)
-   • 6 real flood light towers (SpotLight + emissive bank)
-   • Textured advertising boards around the boundary
-   • Realistic cricket fielding formation
+   • Auto-detects flood light towers IN the stadium model and
+     attaches real SpotLights to their tops (no duplicate geometry)
+   • Textured advertising boards around the boundary rope
+   • Real cricket fielding formation
    ══════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
@@ -15,15 +16,12 @@
     'models/p4.glb','models/p5.glb','models/p6.glb','models/p7.glb'
   ];
 
-  // ─── REAL-WORLD DIMENSIONS ──────────────────────────────────
-  const STADIUM_SIZE       = 200;
-  const PLAYER_HEIGHT      = 1.80;
-  const BALL_DIAMETER      = 0.072;
-  const STUMPS_HEIGHT      = 0.71;
-  const BOUNDARY_RADIUS    = 38;
+  const STADIUM_SIZE    = 200;
+  const PLAYER_HEIGHT   = 1.80;
+  const BALL_DIAMETER   = 0.072;
+  const STUMPS_HEIGHT   = 0.71;
+  const BOUNDARY_RADIUS = 38;
 
-  // ─── REAL CRICKET FIELDING FORMATION ────────────────────────
-  // Ring fielders pushed to ~24m; close fielders stay tight.
   const FIELD_POSITIONS = [
     { role: 'Striker',            x:  0.4,  y: 0, z:  8.6,  rotY: Math.PI,          hasBat: true  },
     { role: 'Non-Striker',        x: -1.2,  y: 0, z: -8.6,  rotY: 0,                hasBat: true  },
@@ -206,9 +204,11 @@
   // ─── STADIUM ────────────────────────────────────────────────
   let stadiumRadius = 100;
   let fieldY = 0;
+  let stadiumModel = null;
 
   function placeStadium(model){
     if (!model) return;
+    stadiumModel = model;
     scaleToMaxDim(model, STADIUM_SIZE);
     model.traverse(function(c){
       if (c.isMesh){ c.castShadow = false; c.receiveShadow = false; }
@@ -228,96 +228,93 @@
   }
 
   // ═══════════════════════════════════════════════════════════
-  //  FLOOD LIGHTS
+  //  FLOOD LIGHTS  —  detect towers in the model, attach lights
   // ═══════════════════════════════════════════════════════════
-  const FLOODLIGHT_POSITIONS = [
-    { x:  95, z:  55 },
-    { x: -95, z:  55 },
-    { x:  95, z: -55 },
-    { x: -95, z: -55 },
-    { x:  55, z:  95 },
-    { x: -55, z:  95 }
-  ];
+  const floodLights = [];   // { spot, fill, pos, setGlow(v) }
+  const MAX_LIGHTS  = 8;
 
-  const floodLights = [];   // { group, setGlow(v) }
+  // Look for tall, far-from-centre meshes in the stadium — those are
+  // the visible tower poles + lamp banks. Cluster them into towers.
+  function detectTowers(model, yBase){
+    const candidates = [];
+    const tmpBox    = new THREE.Box3();
+    const tmpCenter = new THREE.Vector3();
+    const tmpSize   = new THREE.Vector3();
 
-  function makeLampTexture(){
-    const cvs = document.createElement('canvas');
-    cvs.width = 256; cvs.height = 128;
-    const ctx = cvs.getContext('2d');
-    ctx.fillStyle = '#111';
-    ctx.fillRect(0, 0, 256, 128);
-    const cols = 8, rows = 4;
-    for (let r = 0; r < rows; r++){
-      for (let c = 0; c < cols; c++){
-        ctx.fillStyle = '#000';
-        ctx.fillRect(c * (256/cols) + 3, r * (128/rows) + 3,
-                     (256/cols) - 6, (128/rows) - 6);
+    model.updateMatrixWorld(true);
+
+    model.traverse(function(c){
+      if (!c.isMesh || !c.geometry) return;
+
+      tmpBox.setFromObject(c);
+      if (tmpBox.isEmpty()) return;
+      tmpBox.getSize(tmpSize);
+      tmpBox.getCenter(tmpCenter);
+
+      const topY   = tmpBox.max.y;
+      const xzR    = Math.hypot(tmpCenter.x, tmpCenter.z);
+      const maxDim = Math.max(tmpSize.x, tmpSize.y, tmpSize.z);
+
+      // Tower criteria:
+      //  - top is at least 18m above the field
+      //  - top is at most 110m above the field (not a distant skydome)
+      //  - XZ distance from centre is 55–130m (outside the bowl)
+      //  - mesh isn't a giant roof slab
+      if (topY < yBase + 18) return;
+      if (topY > yBase + 110) return;
+      if (xzR  < 55) return;
+      if (xzR  > 140) return;
+      if (maxDim > 40) return;
+
+      candidates.push({
+        x: tmpCenter.x,
+        y: topY,
+        z: tmpCenter.z
+      });
+    });
+
+    // Cluster candidates that are close together (pole + lamp bank = 1 tower)
+    const clusters = [];
+    candidates.forEach(function(p){
+      let placed = false;
+      for (let i = 0; i < clusters.length; i++){
+        const cl = clusters[i];
+        if (Math.hypot(cl.x - p.x, cl.z - p.z) < 18){
+          const n = cl.n + 1;
+          cl.x = (cl.x * cl.n + p.x) / n;
+          cl.z = (cl.z * cl.n + p.z) / n;
+          cl.y = Math.max(cl.y, p.y);
+          cl.n = n;
+          placed = true;
+          break;
+        }
       }
-    }
-    return new THREE.CanvasTexture(cvs);
+      if (!placed) clusters.push({ x: p.x, y: p.y, z: p.z, n: 1 });
+    });
+
+    console.log('[Floodlights] detected ' + clusters.length + ' tower clusters from stadium geometry');
+    return clusters;
   }
 
-  const lampTex = makeLampTexture();
+  function attachFloodlightToTower(t){
+    const spot = new THREE.SpotLight(0xfff4dc, 0.0, 600, Math.PI * 0.26, 0.5, 1.05);
+    spot.position.set(t.x, t.y + 0.5, t.z);
+    spot.target.position.set(0, fieldY, 0);
+    scene.add(spot);
+    scene.add(spot.target);
 
-  function makeFloodlight(cfg, yBase){
-    const group = new THREE.Group();
-    const towerH = 42;
-
-    const pole = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.7, 1.3, towerH, 10),
-      new THREE.MeshStandardMaterial({ color: 0x2b2b2b, roughness: 0.55, metalness: 0.6 })
-    );
-    pole.position.y = towerH / 2;
-    group.add(pole);
-
-    const beam = new THREE.Mesh(
-      new THREE.BoxGeometry(0.6, 0.6, 8),
-      new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.6, metalness: 0.5 })
-    );
-    beam.position.y = towerH + 0.5;
-    group.add(beam);
-
-    const bankMat = new THREE.MeshStandardMaterial({
-      color: 0x111111, roughness: 0.4, metalness: 0.2,
-      emissive: 0xfff1c9, emissiveIntensity: 0.0
-    });
-    const bank = new THREE.Mesh(new THREE.BoxGeometry(7, 4.5, 1.2), bankMat);
-    bank.position.set(0, towerH + 2, 0);
-    group.add(bank);
-
-    const lampMat = new THREE.MeshBasicMaterial({
-      map: lampTex, transparent: false, toneMapped: false
-    });
-    const lampFace = new THREE.Mesh(new THREE.PlaneGeometry(6.6, 4.2), lampMat);
-    lampFace.position.set(0, towerH + 2, 0.65);
-    group.add(lampFace);
-
-    group.position.set(cfg.x, yBase, cfg.z);
-    group.lookAt(0, yBase + 30, 0);
-
-    // Aimed SpotLight — the actual light source
-    const spot = new THREE.SpotLight(0xfff4dc, 0.0, 400, Math.PI * 0.22, 0.55, 1.1);
-    spot.position.set(0, towerH + 2, 0);
-    spot.target.position.set(0, yBase, 0);
-    group.add(spot);
-    group.add(spot.target);
-
-    // Low fill — gives the pitch its "lit from above" look
-    const fillLight = new THREE.PointLight(0xfff0d0, 0.0, 180, 1.4);
-    fillLight.position.set(0, towerH, 0);
-    group.add(fillLight);
-
-    scene.add(group);
+    // Small fill from the same point — makes the pitch feel lit
+    const fill = new THREE.PointLight(0xfff0d0, 0.0, 220, 1.4);
+    fill.position.set(t.x, t.y - 3, t.z);
+    scene.add(fill);
 
     const ref = {
-      group, bank, bankMat, lampMat, lampFace, spot, fillLight,
+      spot: spot,
+      fill: fill,
+      pos:  { x: t.x, y: t.y, z: t.z },
       setGlow: function(v){
-        bankMat.emissiveIntensity = v * 2.2;
-        spot.intensity            = v * 3.5;
-        fillLight.intensity       = v * 0.9;
-        const c = 0.25 + v * 0.75;
-        lampMat.color.setRGB(c, c, c);
+        spot.intensity = v * 3.4;
+        fill.intensity = v * 0.65;
       }
     };
     ref.setGlow(0);
@@ -325,14 +322,41 @@
   }
 
   function buildFloodlights(){
-    FLOODLIGHT_POSITIONS.forEach(function(cfg){
-      makeFloodlight(cfg, fieldY);
-    });
-    console.log('[Floodlights] ' + floodLights.length + ' towers built');
+    if (!stadiumModel){
+      console.warn('[Floodlights] no stadium model');
+      return;
+    }
+
+    let towers = detectTowers(stadiumModel, fieldY);
+
+    // Cap the count for performance
+    if (towers.length > MAX_LIGHTS){
+      towers.sort(function(a, b){ return b.n - a.n; });
+      towers = towers.slice(0, MAX_LIGHTS);
+    }
+
+    // Fallback — if the model's towers don't have their own meshes
+    // (e.g. baked into a single mesh), place lights on a standard ring
+    if (towers.length < 2){
+      console.warn('[Floodlights] few/no towers detected — using fallback ring');
+      const R = 90, H = 45;
+      const fallback = [
+        { x:  R, z:  R }, { x: -R, z:  R },
+        { x:  R, z: -R }, { x: -R, z: -R },
+        { x:  R, z:  0 }, { x: -R, z:  0 },
+        { x:  0, z:  R }, { x:  0, z: -R }
+      ];
+      towers = fallback.map(function(c){
+        return { x: c.x, y: fieldY + H, z: c.z, n: 1 };
+      });
+    }
+
+    towers.forEach(attachFloodlightToTower);
+    console.log('[Floodlights] ' + floodLights.length + ' lights attached to stadium towers');
   }
 
   // ═══════════════════════════════════════════════════════════
-  //  ADVERTISING BOARDS (textured, around boundary rope)
+  //  ADVERTISING BOARDS
   // ═══════════════════════════════════════════════════════════
   const AD_BOARD_RADIUS = BOUNDARY_RADIUS + 1.5;
   const AD_BOARD_COUNT  = 24;
@@ -438,7 +462,7 @@
       scene.add(group);
       playerRefs[pos.role] = group;
     });
-    console.log('[Players] ' + Object.keys(playerRefs).length + ' placed (no markers)');
+    console.log('[Players] ' + Object.keys(playerRefs).length + ' placed');
   }
 
   // ─── BOOT ───────────────────────────────────────────────────
@@ -468,7 +492,9 @@
     const stadiumResult = results.find(function(r){ return r.type === 'stadium'; });
     placeStadium(stadiumResult ? stadiumResult.model : null);
 
+    // Real lights attached to the model's own towers
     buildFloodlights();
+
     buildAdBoards();
 
     const stumpsA = makeStumps();
@@ -494,6 +520,7 @@
       sun: sun,
       hemi: hemi,
       ambient: ambient,
+      stadiumModel: stadiumModel,
       stadiumRadius: stadiumRadius,
       fieldY: fieldY,
       players: playerRefs,
@@ -507,8 +534,7 @@
       }
     };
 
-    console.log('[StadiumView] Ready. ' + floodLights.length + ' flood towers, ' +
-                AD_BOARD_COUNT + ' ad boards, ' + Object.keys(playerRefs).length + ' players.');
+    console.log('[StadiumView] Ready. ' + floodLights.length + ' flood lights attached to model towers.');
   }
 
   window.addEventListener('resize', function(){
