@@ -1,15 +1,14 @@
 /* ══════════════════════════════════════════════════════════════
    StadiumView — stadium + equipment (2 bats) + 15 cricket roles
-   7 player models recycled to fill 15 positions
+   With DRACO support for compressed GLB files
    ══════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
 
   // ─── FILE PATHS ──────────────────────────────────────────────
   const STADIUM_FILE   = 'models/stadium.glb';
-  const EQUIPMENT_FILE = 'models/equipment.glb';   // bat + ball + stumps
+  const EQUIPMENT_FILE = 'models/equipment.glb';
 
-  // Only 7 models uploaded (p1..p7). We'll recycle them.
   const PLAYER_FILES = [
     'models/p1.glb',
     'models/p2.glb',
@@ -20,36 +19,26 @@
     'models/p7.glb'
   ];
 
-  // ─── SIZES (metres; 0 = native) ──────────────────────────────
-  const STADIUM_SIZE   = 0;
-  const EQUIPMENT_SIZE = 0;
-  const PLAYER_SIZE    = 1.8;
+  // ─── SIZES (metres; 0 = keep native) ─────────────────────────
+  const STADIUM_SIZE   = 200;    // 200m-wide ground
+  const EQUIPMENT_SIZE = 3.5;    // bat + stumps group
+  const PLAYER_SIZE    = 1.8;    // human height
 
   // ─── ROTATIONS ───────────────────────────────────────────────
   const ROT_STADIUM   = { x: 0, y: 0, z: 0 };
   const ROT_EQUIPMENT = { x: 0, y: 0, z: 0 };
   const ROT_PLAYER    = { x: 0, y: 0, z: 0 };
 
-  // ─── EQUIPMENT POSITIONS (both ends of the pitch) ────────────
+  // ─── EQUIPMENT POSITIONS ─────────────────────────────────────
   const EQUIPMENT_POS_STRIKER    = { x: 0.35, y: 0, z: 9 };
   const EQUIPMENT_POS_NONSTRIKER = { x: -1.2, y: 0, z: -9 };
 
-  /* ─── 15 CRICKET POSITIONS ────────────────────────────────────
-     x  = off-side (+) / leg-side (−)
-     z  = batting end (+) / bowling end (−)
-     rotY = direction the player faces (radians)
-     Model faces +Z when rotY = 0                              */
+  // ─── 15 CRICKET POSITIONS ────────────────────────────────────
   const FIELD_POSITIONS = [
-
-    // ══ BATTING SIDE (2) ══
     { role: 'Striker',            x: 0.35,  y: 0, z: 9,     rotY: Math.PI },
     { role: 'Non-Striker',        x: -1.2,  y: 0, z: -9,    rotY: 0 },
-
-    // ══ UMPIRES (2) ══
     { role: 'Umpire (Bowl End)',  x: -0.7,  y: 0, z: -10.5, rotY: 0 },
     { role: 'Umpire (Sq Leg)',    x: -14,   y: 0, z: 0,     rotY: Math.PI * 0.5 },
-
-    // ══ BOWLING SIDE (11) ══
     { role: 'Bowler',             x: 0,     y: 0, z: -14,   rotY: 0 },
     { role: 'Keeper',             x: 0,     y: 0, z: 12,    rotY: Math.PI },
     { role: 'Slip',               x: 3,     y: 0, z: 13.5,  rotY: Math.PI },
@@ -81,6 +70,7 @@
 
   // ─── LIGHTS ──────────────────────────────────────────────────
   scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+
   const hemi = new THREE.HemisphereLight(0xffffff, 0x4a7a4a, 1.0);
   scene.add(hemi);
 
@@ -99,8 +89,22 @@
   sun.shadow.normalBias = 0.02;
   scene.add(sun);
 
-  // ─── LOADER ──────────────────────────────────────────────────
+  // ─── LOADER + DRACO ──────────────────────────────────────────
   const loader = new THREE.GLTFLoader();
+
+  if (typeof THREE.DRACOLoader === 'function'){
+    try {
+      const draco = new THREE.DRACOLoader();
+      draco.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/draco/');
+      loader.setDRACOLoader(draco);
+      console.log('[Loader] DRACO decoder attached ✅');
+    } catch(e){
+      console.warn('[Loader] DRACO setup failed:', e);
+    }
+  } else {
+    console.warn('[Loader] THREE.DRACOLoader not found — compressed GLBs will fail');
+  }
+
   const loadStatus = {};
 
   function loadOne(key, url){
@@ -192,7 +196,7 @@
   }
 
   // ─── PLACE STADIUM ───────────────────────────────────────────
-  let stadiumRadius = 150;
+  let stadiumRadius = 200;
 
   function placeStadium(model){
     if (!model) return;
@@ -206,14 +210,13 @@
     const sz = new THREE.Vector3();
     box.getSize(sz);
     stadiumRadius = Math.max(sz.x, sz.z) * 0.6;
-    console.log('[Stadium] size: ' + sz.x.toFixed(1) + ' × ' + sz.y.toFixed(1) + ' × ' + sz.z.toFixed(1));
+    console.log('[Stadium] size after scaling: ' + sz.x.toFixed(1) + ' × ' + sz.y.toFixed(1) + ' × ' + sz.z.toFixed(1));
   }
 
-  // ─── PLACE EQUIPMENT (2 bats, 1 ball, stumps at both ends) ───
+  // ─── PLACE EQUIPMENT ─────────────────────────────────────────
   function placeEquipment(model){
     if (!model) return;
 
-    // Original at STRIKER'S end
     model.rotation.set(ROT_EQUIPMENT.x, ROT_EQUIPMENT.y, ROT_EQUIPMENT.z);
     autoFit(model, EQUIPMENT_SIZE);
     enableShadows(model, true);
@@ -224,24 +227,10 @@
     );
     scene.add(model);
 
-    // Clone at NON-STRIKER'S end, hide the ball
     const clone = model.clone(true);
-    let ballHidden = false;
-    const meshNames = [];
-    clone.traverse(function(child){
-      if (child.isMesh){
-        meshNames.push(child.name || '(unnamed)');
-        if (child.name && /ball/i.test(child.name)){
-          child.visible = false;
-          ballHidden = true;
-        }
-      }
-    });
-
     clone.rotation.x = ROT_EQUIPMENT.x || 0;
     clone.rotation.y = (ROT_EQUIPMENT.y || 0) + Math.PI;
     clone.rotation.z = ROT_EQUIPMENT.z || 0;
-
     clone.position.set(
       EQUIPMENT_POS_NONSTRIKER.x,
       EQUIPMENT_POS_NONSTRIKER.y,
@@ -249,16 +238,16 @@
     );
     scene.add(clone);
 
-    console.log('[Equipment] Meshes: ' + meshNames.join(', '));
-    console.log('[Equipment] Ball hidden in clone: ' + (ballHidden ? 'YES ✅' : 'NO'));
+    console.log('[Equipment] placed at both ends (target ' + EQUIPMENT_SIZE + 'm)');
   }
 
-  /* ─── PLACE PLAYERS ───────────────────────────────────────────
-     7 models recycled across all 15 positions.
-     Each clone gets a shuffled model from the pool. */
+  // ─── PLACE PLAYERS ───────────────────────────────────────────
   function placePlayers(models){
     const valid = models.filter(function(m){ return m; });
-    if (valid.length === 0){ console.warn('[Players] none loaded'); return; }
+    if (valid.length === 0){
+      console.warn('[Players] No player models loaded — DRACO missing or files not found');
+      return;
+    }
 
     shuffle(valid);
     console.log('[Players] Loaded ' + valid.length + ' models, need ' + FIELD_POSITIONS.length + ' positions');
@@ -272,7 +261,6 @@
       const srcName = src.name || ('p' + ((i % valid.length) + 1));
       model.name = srcName + '_' + pos.role.replace(/[^a-z0-9]/gi, '');
 
-      // Reset transform for a clean auto-fit
       model.position.set(0, 0, 0);
       model.rotation.set(0, 0, 0);
       model.scale.set(1, 1, 1);
@@ -280,12 +268,10 @@
       autoFit(model, PLAYER_SIZE);
       enableShadows(model, true);
 
-      // Apply rotation for this role
       model.rotation.x = ROT_PLAYER.x || 0;
       model.rotation.y = pos.rotY || 0;
       model.rotation.z = ROT_PLAYER.z || 0;
 
-      // Position on the field
       model.position.x = pos.x;
       model.position.z = pos.z;
       model.position.y = pos.y + (model.position.y || 0);
