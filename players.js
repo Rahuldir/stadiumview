@@ -1,17 +1,17 @@
 /* ══════════════════════════════════════════════════════════════
-   StadiumView — Kinematics v13.0 (Absolute Color & Rotation Fix)
-   • FIXED: Fielders rotated 180° to fix inverted GLTF forward axes.
-   • FIXED: Aggressive material targeting (colors everything except skin/hair).
-   • LIVERY: Mumbai Blue/Gold for fielding, Red/Yellow for Batsmen.
+   StadiumView — Kinematics v14.0 (The Fix: Scales, Sunken Legs & CSK/MI Jerseys)
+   • FIXED: Bat detached from bone hierarchy to prevent scale-squishing.
+   • FIXED: Fielders rotated 180° via absolute lookAt to fix backward facing.
+   • FIXED: Sunken fielder bug resolved by zeroing Y-offsets for non-keepers.
+   • FIXED: Removed neon glow; applied proper CSK Yellow and MI Blue.
    ══════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
 
-  console.log('%c[players.js] IIFE started — kinematics v13.0 (Color & Target Fix)', 'color:#ff00ea;font-weight:bold');
+  console.log('%c[players.js] IIFE started — kinematics v14.0 (Total Fix)', 'color:#00ff08;font-weight:bold');
 
   const IS_MOBILE_PLAYERS = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
   const BONE_EVERY = IS_MOBILE_PLAYERS ? 3 : 1;
-
   let attempts = 0, MAX_ATTEMPTS = 100;
 
   const wait = setInterval(function(){
@@ -46,7 +46,7 @@
   }
 
   // ═════════════════════════════════════════════════════════════
-  //  THE MAIN ROLES (Hardcoded absolute positions & rotations)
+  //  THE MAIN ROLES (Absolute Positions)
   // ═════════════════════════════════════════════════════════════
   const STANCE_OVERRIDES = {
     'Striker':          { x: -0.32, z: 8.8,   rotY: Math.PI * 0.72, batTilt: 0.25 },
@@ -169,7 +169,6 @@
   function bakeRestPose(skel){
     if (skel.slots.lUpperArm) pointBoneDown(skel.slots.lUpperArm, _targetDown);
     if (skel.slots.rUpperArm) pointBoneDown(skel.slots.rUpperArm, _targetDown);
-
     BONE_SLOTS.forEach(slot => {
       if (skel.slots[slot]) skel.rest[slot] = skel.slots[slot].quaternion.clone();
     });
@@ -194,37 +193,35 @@
   }
 
   // ═════════════════════════════════════════════════════════════
-  //  AGGRESSIVE JERSEY RE-COLORING ENGINE
+  //  JERSEY RE-COLORING (CSK & MI)
   // ═════════════════════════════════════════════════════════════
   function applyJerseyColors(role, group) {
     group.traverse(c => {
+      if (c.userData && c.userData.isAccessory) return; // SKIP BATS AND BALLS
+      
       if (c.isMesh && c.material) {
-        // Handle models with multi-materials (arrays) safely
         const mats = Array.isArray(c.material) ? c.material : [c.material];
-        
         const newMats = mats.map(m => {
-          // If the material is named skin/face/hair, LEAVE IT ALONE
-          if (/skin|face|hair|body|eye|mouth|teeth/i.test(m.name) || /skin|face|hair/i.test(c.name)) {
+          // Attempt to skip skin/hair by checking standard map existence or naming
+          if (m.map !== null || /skin|face|hair|head|eye/i.test(m.name) || /skin|face|hair|head/i.test(c.name)) {
             return m; 
           }
-          
           let clone = m.clone();
+          clone.emissiveIntensity = 0; // KILLS THE NEON GLOW BUG
+          clone.emissive.setHex(0x000000); 
+
           if (role === 'Striker' || role === 'Non-Striker') {
-            // Batsmen Livery (Red and Yellow)
-            if(clone.color) clone.color.setHex(0xE31837); 
-            if(clone.emissive) { clone.emissive.setHex(0xFFD700); clone.emissiveIntensity = 0.25; } 
+            // CSK YELLOW
+            if(clone.color) clone.color.setHex(0xF9CD05); 
           } else if (role.includes('Umpire')) {
-            // Umpires
-            if(clone.color) clone.color.setHex(0x111111);
+            // UMPIRE BLACK
+            if(clone.color) clone.color.setHex(0x222222);
           } else {
-            // Mumbai Indians (Blue and Gold)
+            // MUMBAI INDIANS BLUE
             if(clone.color) clone.color.setHex(0x004BA0); 
-            if(clone.emissive) { clone.emissive.setHex(0xD4AF37); clone.emissiveIntensity = 0.25; }
           }
           return clone;
         });
-
-        // Reapply the safely cloned materials
         c.material = Array.isArray(c.material) ? newMats : newMats[0];
       }
     });
@@ -239,18 +236,12 @@
       group.position.set(stance.x, group.position.y, stance.z);
       group.rotation.y = stance.rotY;
     } else {
-      // AUTO-TARGETING (Inverted to fix the models facing backwards)
-      const targetX = 0;
-      const targetZ = 8.8;
-      const dx = targetX - group.position.x;
-      const dz = targetZ - group.position.z;
-      group.rotation.y = Math.atan2(dx, dz); // Math.PI removed to flip them towards pitch
+      // AUTO-TARGETING (Forces fielders to look directly at the pitch)
+      const target = new THREE.Vector3(0, group.position.y, 8.8);
+      group.lookAt(target);
+      group.rotateY(Math.PI); // FLIP 180 DEGREE FIX FOR INVERTED MODELS
     }
-    
     group.updateMatrixWorld(true);
-    bakeRestPose(skel);
-    calibrateRig(skel);
-    applyJerseyColors(role, group); 
 
     const playerObj = {
       role, group, skel, stance: stance || null,
@@ -260,11 +251,23 @@
       home: { x: group.position.x, y: group.position.y, z: group.position.z, rotY: group.rotation.y }
     };
     
-    if (playerObj.batObj && playerObj.batObj.parent) playerObj.batObj.parent.remove(playerObj.batObj);
-    if (playerObj.ballObj && playerObj.ballObj.parent) playerObj.ballObj.parent.remove(playerObj.ballObj);
-    if (playerObj.batObj) window.StadiumView.scene.add(playerObj.batObj);
-    if (playerObj.ballObj) window.StadiumView.scene.add(playerObj.ballObj);
+    // ISOLATE ACCESSORIES FROM BONE SCALING
+    if (playerObj.batObj) {
+      if (playerObj.batObj.parent) playerObj.batObj.parent.remove(playerObj.batObj);
+      playerObj.batObj.userData.isAccessory = true;
+      playerObj.batObj.scale.set(1, 1, 1); // Reset skewed scales
+      window.StadiumView.scene.add(playerObj.batObj);
+    }
+    if (playerObj.ballObj) {
+      if (playerObj.ballObj.parent) playerObj.ballObj.parent.remove(playerObj.ballObj);
+      playerObj.ballObj.userData.isAccessory = true;
+      playerObj.ballObj.scale.set(1.5, 1.5, 1.5);
+      window.StadiumView.scene.add(playerObj.ballObj);
+    }
 
+    bakeRestPose(skel);
+    calibrateRig(skel);
+    applyJerseyColors(role, group); 
     return playerObj;
   }
 
@@ -288,23 +291,36 @@
       _qb.copy(sk.rest[slot]).multiply(_qa);
       sk.slots[slot].quaternion.copy(_qb);
     }
-    
+    function dX(sk, slot, ang){
+      if (!sk.slots[slot] || !sk.rest[slot]) return;
+      _qa.setFromAxisAngle(X, ang); _qb.copy(sk.rest[slot]).multiply(_qa);
+      sk.slots[slot].quaternion.copy(_qb);
+    }
+    function dY(sk, slot, ang){
+      if (!sk.slots[slot] || !sk.rest[slot]) return;
+      _qa.setFromAxisAngle(Y, ang); _qb.copy(sk.rest[slot]).multiply(_qa);
+      sk.slots[slot].quaternion.copy(_qb);
+    }
+
+    // STRICT WORLD-SPACE ACCESSORY LOCKING
     function lockAccessories(p) {
       if (p.batObj && p.skel.slots.rHand) {
          p.skel.slots.rHand.updateMatrixWorld(true);
-         const handPos = new THREE.Vector3();
-         p.skel.slots.rHand.getWorldPosition(handPos);
-         const worldRot = p.group.rotation.y;
-         p.batObj.quaternion.setFromEuler(new THREE.Euler(Math.PI * 0.4, worldRot, 0, 'YXZ'));
+         p.skel.slots.rHand.getWorldPosition(_v1);
+         p.skel.slots.rHand.getWorldQuaternion(_worldRot);
+         
+         p.batObj.position.copy(_v1);
+         // Enforce a downward-pointing rotation relative to the hand's world rotation
+         const gripFix = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI/2 + (p.stance ? p.stance.batTilt : 0.2), 0, 0));
+         p.batObj.quaternion.copy(_worldRot).multiply(gripFix);
+         
          const handleOffset = new THREE.Vector3(0, 0.45, 0).applyQuaternion(p.batObj.quaternion);
-         p.batObj.position.copy(handPos).sub(handleOffset);
+         p.batObj.position.sub(handleOffset);
       }
       if (p.ballObj && p.skel.slots.rHand) {
          p.skel.slots.rHand.updateMatrixWorld(true);
-         const handPos = new THREE.Vector3();
-         p.skel.slots.rHand.getWorldPosition(handPos);
-         p.ballObj.position.copy(handPos);
-         p.ballObj.scale.set(1.5, 1.5, 1.5);
+         p.skel.slots.rHand.getWorldPosition(_v1);
+         p.ballObj.position.copy(_v1);
       }
     }
 
@@ -334,9 +350,7 @@
           if(sk.slots.lUpperArm) pointBoneDown(sk.slots.lUpperArm, new THREE.Vector3(0, -0.5, 0.8).normalize());
           if(sk.slots.rUpperArm) pointBoneDown(sk.slots.rUpperArm, new THREE.Vector3(0, -0.5, 0.8).normalize());
         }
-        else {
-           dBend(sk, 'lThigh', -0.1); dBend(sk, 'rThigh', -0.1);
-        }
+        // NOTE: Standard fielders no longer have dBend applied so they won't sink into the grass
       } 
     }
 
@@ -355,6 +369,27 @@
         dBend(sk, 'lShin', 0.6 * stride);   
         dBend(sk, 'rThigh', 0.3 * stride);  
         p.group.position.y = p.home.y - 0.25 * stride; 
+      }
+    }
+
+    function battingSwing(p){
+      const sk = p.skel;
+      const a = p.phase;
+      if (a < 0.4){
+        const q = a / 0.4; 
+        dY(sk, 'spine', 0.4 * q); 
+        dX(sk, 'rUpperArm', 1.5 * q); 
+        dX(sk, 'lUpperArm', 0.8 * q); 
+      } else if (a < 0.7) {
+        const q = (a - 0.4) / 0.3; 
+        dY(sk, 'spine', 0.4 - 0.8 * q);
+        dX(sk, 'rUpperArm', 1.5 - 2.0 * q); 
+        dX(sk, 'lUpperArm', 0.8 - 1.5 * q); 
+      } else {
+        const q = (a - 0.7) / 0.3;
+        dY(sk, 'spine', -0.4 - 0.2 * q);
+        dX(sk, 'rUpperArm', -0.5 - 0.5 * q);
+        dX(sk, 'lUpperArm', -0.7 - 0.5 * q);
       }
     }
 
@@ -383,8 +418,7 @@
           resetToRest(p);
           if (p.mode === 'idle') torso(p, globalT);
           else if (p.mode === 'walk' || p.mode === 'running') runCycle(p);
-          else if (p.mode === 'batting') battingFootwork(p); 
-          
+          else if (p.mode === 'batting') { battingFootwork(p); battingSwing(p); }
           lockAccessories(p);
         }
       });
@@ -410,6 +444,6 @@
     }
 
     window.PlayerControl = { players, play };
-    console.log('[PlayerControl] ✅ Ready — Colors & Rotations Applied');
+    console.log('[PlayerControl] ✅ Ready — Fixes Deployed');
   }
 })();
