@@ -243,7 +243,7 @@
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/DRACOLoader.js"></script>
 
-<!-- APP -->
+<!-- APP SCRIPTS -->
 <script src="stadium.js"></script>
 <script src="controls.js"></script>
 <script src="anim.js"></script>
@@ -296,14 +296,13 @@
 
   btn.addEventListener('click', function(e){ e.stopPropagation(); toggleMenu(); });
 
-  // Close menu on outside tap
   document.addEventListener('pointerdown', function(e){
     if (!panel.classList.contains('open')) return;
     if (panel.contains(e.target) || btn.contains(e.target)) return;
     closeMenu();
   });
 
-  // ─── Populate view buttons with DIRECT handlers ────────
+  // ─── View buttons — ALL 14 ─────────────────────────────
   const viewRow = document.getElementById('viewRow');
   if (viewRow && viewRow.dataset.filled !== '1'){
     viewRow.dataset.filled = '1';
@@ -319,29 +318,26 @@
       b.setAttribute('data-view', k);
       b.textContent = k.charAt(0).toUpperCase() + k.slice(1);
       b.addEventListener('click', function(ev){
-        ev.preventDefault();
-        ev.stopPropagation();
+        ev.preventDefault(); ev.stopPropagation();
         if (typeof window.__applyView === 'function'){
           window.__applyView(k);
-          // update .on highlight
           viewRow.querySelectorAll('button').forEach(function(x){
             x.classList.toggle('on', x === b);
           });
         } else {
-          console.warn('[Menu] camera API not ready — try again in a second');
+          console.warn('[Menu] camera API not ready');
         }
       });
       viewRow.appendChild(b);
     });
   }
 
-  // ─── Populate time buttons with DIRECT handlers ────────
+  // ─── Time buttons ──────────────────────────────────────
   const timeRow = document.getElementById('timeRow');
   if (timeRow){
     timeRow.querySelectorAll('button').forEach(function(b){
       b.addEventListener('click', function(ev){
-        ev.preventDefault();
-        ev.stopPropagation();
+        ev.preventDefault(); ev.stopPropagation();
         const mode = b.getAttribute('data-time');
         if (typeof window.__setTime === 'function'){
           window.__setTime(mode);
@@ -391,275 +387,25 @@
     });
   }
 
-  // ─── Player buttons (populated after PlayerControl loads) ──
+  // ─── Player buttons — safe polling ─────────────────────
   const waitPlayers = setInterval(function(){
     if (!window.PlayerControl) return;
+    const roles = window.PlayerControl.roles;
+    if (!roles || !roles.forEach) return;   // guard against partial init
+
     clearInterval(waitPlayers);
+
     const row = document.getElementById('playerRow');
     if (!row || row.dataset.filled === '1') return;
     row.dataset.filled = '1';
     row.innerHTML = '';
-    window.PlayerControl.roles.forEach(function(role){
+
+    roles.forEach(function(role){
       const b = document.createElement('button');
       b.textContent = role.length > 10 ? role.slice(0, 9) + '…' : role;
       b.title = role;
       b.addEventListener('click', function(ev){
         ev.preventDefault(); ev.stopPropagation();
-        window.PlayerControl.select(role);
-        row.querySelectorAll('button').forEach(function(x){ x.classList.remove('on'); });
-        b.classList.add('on');
-      });
-      row.appendChild(b);
-    });
-    if (row.firstChild) row.firstChild.classList.add('on');
-  }, 250);
-
-  // ─── Shift+Tap on field to move selected player ────────
-  function waitCanvas(){
-    const canvas = document.querySelector('canvas');
-    if (!canvas){ setTimeout(waitCanvas, 200); return; }
-    canvas.addEventListener('pointerup', function(e){
-      if (!e.shiftKey) return;
-      if (!window.PlayerControl || !window.StadiumView) return;
-      const SV = window.StadiumView;
-      const raycaster = new THREE.Raycaster();
-      const mouse = new THREE.Vector2(
-        (e.clientX / window.innerWidth) * 2 - 1,
-        -(e.clientY / window.innerHeight) * 2 + 1
-      );
-      raycaster.setFromCamera(mouse, SV.camera);
-      const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -(SV.fieldY || 7.19));
-      const hit = new THREE.Vector3();
-      if (raycaster.ray.intersectPlane(plane, hit)){
-        const role = window.PlayerControl.selected();
-        window.PlayerControl.moveTo(role, hit.x, hit.z, null, 900);
-        if (window.showToast) window.showToast(role + ' → ' + hit.x.toFixed(1) + ',' + hit.z.toFixed(1));
-      }
-    });
-  }
-  waitCanvas();
-
-  console.log('[Menu] ✅ ready · views=' +
-              (viewRow ? viewRow.querySelectorAll('button').length : 0));
-})();
-</script>
-
-  // ─── Populate view buttons — ALL 14 ────────────────────
-  const viewRow = document.getElementById('viewRow');
-  if (viewRow && viewRow.dataset.filled !== '1'){
-    viewRow.dataset.filled = '1';
-    viewRow.innerHTML = '';
-    const VIEWS = [
-      'overview','tv','tvlong','tvhigh',
-      'bowler','batsman','batting',
-      'closeup','stumps','sideOn','pitch',
-      'aerial','spider','drone'
-    ];
-    VIEWS.forEach(function(k){
-      const b = document.createElement('button');
-      b.setAttribute('data-view', k);
-      b.textContent = k.charAt(0).toUpperCase() + k.slice(1);
-      viewRow.appendChild(b);
-    });
-  }
-
-  // ─── Click delegation (works even if API loads later) ──
-  document.addEventListener('click', function(e){
-    const vBtn = e.target.closest('#viewRow button');
-    if (vBtn){
-      const name = vBtn.getAttribute('data-view');
-      if (typeof window.__applyView === 'function'){
-        window.__applyView(name);
-      } else {
-        console.warn('[Menu] __applyView not ready — wait a moment');
-      }
-      return;
-    }
-    const tBtn = e.target.closest('#timeRow button');
-    if (tBtn){
-      const mode = tBtn.getAttribute('data-time');
-      if (typeof window.__setTime === 'function'){
-        window.__setTime(mode);
-      }
-      return;
-    }
-  });
-
-  // ─── Director (works with the exposed API) ─────────────
-  const autoBtn  = document.getElementById('btn-auto');
-  const resetBtn = document.getElementById('btn-reset');
-  let directorTimer = null;
-  let directorIdx   = 0;
-  const DIRECTOR_ORDER = ['tv','bowler','closeup','sideOn','batsman','stumps','tvlong','overview','aerial'];
-
-  function stepDirector(){
-    if (!autoBtn.classList.contains('on')) return;
-    const name = DIRECTOR_ORDER[directorIdx % DIRECTOR_ORDER.length];
-    directorIdx++;
-    if (typeof window.__applyView === 'function'){
-      window.__applyView(name);
-    }
-    directorTimer = setTimeout(stepDirector, 5000);
-  }
-
-  if (autoBtn){
-    autoBtn.addEventListener('click', function(){
-      const on = autoBtn.classList.toggle('on');
-      autoBtn.textContent = on ? '⏸ Director' : '▶ Director';
-      if (on){
-        directorIdx = 0;
-        stepDirector();
-      } else if (directorTimer){
-        clearTimeout(directorTimer);
-        directorTimer = null;
-      }
-    });
-  }
-
-  if (resetBtn){
-    resetBtn.addEventListener('click', function(){
-      if (window.PlayerControl) window.PlayerControl.resetAll();
-      closeMenu();
-    });
-  }
-
-  // ─── Player buttons (populated after PlayerControl loads) ──
-  const waitPlayers = setInterval(function(){
-    if (!window.PlayerControl) return;
-    clearInterval(waitPlayers);
-    const row = document.getElementById('playerRow');
-    if (!row || row.dataset.filled === '1') return;
-    row.dataset.filled = '1';
-    row.innerHTML = '';
-    window.PlayerControl.roles.forEach(function(role){
-      const b = document.createElement('button');
-      b.textContent = role.length > 10 ? role.slice(0, 9) + '…' : role;
-      b.title = role;
-      b.addEventListener('click', function(){
-        window.PlayerControl.select(role);
-        row.querySelectorAll('button').forEach(function(x){ x.classList.remove('on'); });
-        b.classList.add('on');
-      });
-      row.appendChild(b);
-    });
-    if (row.firstChild) row.firstChild.classList.add('on');
-  }, 250);
-
-  // ─── Shift+Tap on field to move selected player ────────
-  function waitCanvas(){
-    const canvas = document.querySelector('canvas');
-    if (!canvas){ setTimeout(waitCanvas, 200); return; }
-    canvas.addEventListener('pointerup', function(e){
-      if (!e.shiftKey) return;
-      if (!window.PlayerControl || !window.StadiumView) return;
-      const SV = window.StadiumView;
-      const raycaster = new THREE.Raycaster();
-      const mouse = new THREE.Vector2(
-        (e.clientX / window.innerWidth) * 2 - 1,
-        -(e.clientY / window.innerHeight) * 2 + 1
-      );
-      raycaster.setFromCamera(mouse, SV.camera);
-      const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -(SV.fieldY || 7.19));
-      const hit = new THREE.Vector3();
-      if (raycaster.ray.intersectPlane(plane, hit)){
-        const role = window.PlayerControl.selected();
-        window.PlayerControl.moveTo(role, hit.x, hit.z, null, 900);
-        if (window.showToast) window.showToast(role + ' → ' + hit.x.toFixed(1) + ',' + hit.z.toFixed(1));
-      }
-    });
-  }
-  waitCanvas();
-
-  console.log('[Menu] ✅ ready · views=' +
-              (viewRow ? viewRow.querySelectorAll('button').length : 0));
-})();
-</script>
-
-  // ─── View buttons — populate ONCE ──────────────────────
-  const viewRow = document.getElementById('viewRow');
-  if (viewRow && viewRow.dataset.filled !== '1'){
-    viewRow.dataset.filled = '1';
-    viewRow.innerHTML = '';
-    const VIEWS = ['overview','tv','bowler','batsman','closeup','stumps','aerial','sideOn'];
-    VIEWS.forEach(function(k){
-      const b = document.createElement('button');
-      b.setAttribute('data-view', k);
-      b.textContent = k.charAt(0).toUpperCase() + k.slice(1);
-      viewRow.appendChild(b);
-    });
-  }
-
-  // ─── Click handlers via delegation ─────────────────────
-  document.addEventListener('click', function(e){
-    const vBtn = e.target.closest('#viewRow button');
-    if (vBtn){
-      const name = vBtn.getAttribute('data-view');
-      if (window.__applyView) window.__applyView(name);
-      return;
-    }
-    const tBtn = e.target.closest('#timeRow button');
-    if (tBtn){
-      const mode = tBtn.getAttribute('data-time');
-      if (window.__setTime) window.__setTime(mode);
-      return;
-    }
-  });
-
-  // ─── Director ──────────────────────────────────────────
-  const autoBtn  = document.getElementById('btn-auto');
-  const resetBtn = document.getElementById('btn-reset');
-  let directorTimer = null;
-  let directorIdx   = 0;
-  const DIRECTOR_ORDER = ['tv','bowler','closeup','sideOn','batsman','stumps','tvlong','overview'];
-
-  function stepDirector(){
-    if (!autoBtn.classList.contains('on')) return;
-    const name = DIRECTOR_ORDER[directorIdx % DIRECTOR_ORDER.length];
-    directorIdx++;
-
-    if (window.__applyView){
-      window.__applyView(name);
-    } else {
-      const target = document.querySelector('#viewRow button[data-view="' + name + '"]');
-      if (target) target.click();
-    }
-    directorTimer = setTimeout(stepDirector, 5000);
-  }
-
-  if (autoBtn){
-    autoBtn.addEventListener('click', function(){
-      const on = autoBtn.classList.toggle('on');
-      autoBtn.textContent = on ? '⏸ Director' : '▶ Director';
-      if (on){
-        directorIdx = 0;
-        stepDirector();
-      } else if (directorTimer){
-        clearTimeout(directorTimer);
-        directorTimer = null;
-      }
-    });
-  }
-
-  if (resetBtn){
-    resetBtn.addEventListener('click', function(){
-      if (window.PlayerControl) window.PlayerControl.resetAll();
-      closeMenu();
-    });
-  }
-
-  // ─── Player buttons (populated after PlayerControl loads) ──
-  const waitPlayers = setInterval(function(){
-    if (!window.PlayerControl) return;
-    clearInterval(waitPlayers);
-    const row = document.getElementById('playerRow');
-    if (!row || row.dataset.filled === '1') return;
-    row.dataset.filled = '1';
-    row.innerHTML = '';
-    window.PlayerControl.roles.forEach(function(role){
-      const b = document.createElement('button');
-      b.textContent = role.length > 10 ? role.slice(0, 9) + '…' : role;
-      b.title = role;
-      b.addEventListener('click', function(){
         window.PlayerControl.select(role);
         row.querySelectorAll('button').forEach(function(x){ x.classList.remove('on'); });
         b.classList.add('on');
@@ -694,7 +440,8 @@
   }
   waitCanvas();
 
-  console.log('[Menu] ✅ single-menu UI ready');
+  console.log('[Menu] ✅ ready · views=' +
+              (viewRow ? viewRow.querySelectorAll('button').length : 0));
 })();
 </script>
 
