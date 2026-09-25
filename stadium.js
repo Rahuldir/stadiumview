@@ -1,6 +1,6 @@
 /* ══════════════════════════════════════════════════════════════
-   StadiumView — stadium (has own ground+pitch) + equipment + players
-   Simplified lighting: no shadows, all ambient
+   StadiumView — raycast-based field detection
+   Finds actual grass height, places everything on it
    ══════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
@@ -14,12 +14,10 @@
     'models/p4.glb','models/p5.glb','models/p6.glb','models/p7.glb'
   ];
 
-  // ─── SIZES (metres) ──────────────────────────────────────────
   const STADIUM_SIZE   = 200;
   const EQUIPMENT_SIZE = 4.0;
   const PLAYER_SIZE    = 1.8;
 
-  // ─── ROTATIONS ───────────────────────────────────────────────
   const ROT_STADIUM   = { x: 0, y: 0, z: 0 };
   const ROT_EQUIPMENT = { x: 0, y: 0, z: 0 };
   const ROT_PLAYER    = { x: 0, y: 0, z: 0 };
@@ -57,40 +55,31 @@
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(innerWidth, innerHeight);
-  renderer.shadowMap.enabled = false;                 // ← shadows OFF
+  renderer.shadowMap.enabled = false;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.3;                 // ← brighter
+  renderer.toneMappingExposure = 1.3;
   document.body.appendChild(renderer.domElement);
 
-  // ─── LIGHTS (simple + bright, no shadows) ────────────────────
+  // ─── LIGHTS ──────────────────────────────────────────────────
   scene.add(new THREE.AmbientLight(0xffffff, 1.4));
-
   const hemi = new THREE.HemisphereLight(0xffffff, 0x88aa88, 1.4);
   scene.add(hemi);
-
   const sun = new THREE.DirectionalLight(0xffffff, 1.0);
   sun.position.set(80, 400, 80);
-  sun.castShadow = false;                              // ← no shadows
   scene.add(sun);
-
-  // Extra fill from opposite side to avoid dark patches
   const fill = new THREE.DirectionalLight(0xffffff, 0.6);
   fill.position.set(-80, 300, -80);
-  fill.castShadow = false;
   scene.add(fill);
 
   // ─── LOADER + DRACO ──────────────────────────────────────────
   const loader = new THREE.GLTFLoader();
-
   if (typeof THREE.DRACOLoader === 'function'){
     try {
       const draco = new THREE.DRACOLoader();
       draco.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/draco/');
       loader.setDRACOLoader(draco);
       console.log('[Loader] DRACO decoder attached ✅');
-    } catch(e){
-      console.warn('[Loader] DRACO setup failed:', e);
-    }
+    } catch(e){ console.warn('[Loader] DRACO setup failed:', e); }
   }
 
   const loadStatus = {};
@@ -98,31 +87,25 @@
   function loadOne(key, url){
     loadStatus[key] = { status: 'pending' };
     updateList();
-
     return new Promise(function(resolve){
-      loader.load(
-        url,
-        function(gltf){
-          const model = gltf.scene || gltf.scenes[0];
-          if (model && !model.name) model.name = key;
-          loadStatus[key] = { status: 'loaded' };
+      loader.load(url, function(gltf){
+        const model = gltf.scene || gltf.scenes[0];
+        if (model && !model.name) model.name = key;
+        loadStatus[key] = { status: 'loaded' };
+        updateList();
+        console.log('[StadiumView] ✅ ' + key);
+        resolve(model);
+      }, function(p){
+        if (p.total){
+          loadStatus[key] = { status: 'loading', pct: Math.round((p.loaded / p.total) * 100) };
           updateList();
-          console.log('[StadiumView] ✅ ' + key);
-          resolve(model);
-        },
-        function(p){
-          if (p.total){
-            loadStatus[key] = { status: 'loading', pct: Math.round((p.loaded / p.total) * 100) };
-            updateList();
-          }
-        },
-        function(err){
-          loadStatus[key] = { status: 'failed' };
-          updateList();
-          console.warn('[StadiumView] ❌ ' + key + ' — ' + (err.message || 'not found'));
-          resolve(null);
         }
-      );
+      }, function(err){
+        loadStatus[key] = { status: 'failed' };
+        updateList();
+        console.warn('[StadiumView] ❌ ' + key + ' — ' + (err.message || 'not found'));
+        resolve(null);
+      });
     });
   }
 
@@ -149,34 +132,28 @@
     box.getSize(size);
     const maxDim = Math.max(size.x, size.y, size.z);
     if (maxDim === 0) return;
-
     const scale = targetSize / maxDim;
     model.scale.setScalar(scale);
+  }
 
+  // Position a model so its bottom sits at y = 0 locally
+  function bottomToZero(model){
     model.updateMatrixWorld(true);
     const nb = new THREE.Box3().setFromObject(model);
-    const c = new THREE.Vector3();
-    nb.getCenter(c);
-    model.position.x -= c.x;
-    model.position.z -= c.z;
     model.position.y -= nb.min.y;
   }
 
-  function enableShadows(obj, cast){
-    // Shadows disabled — we just ensure materials are visible
+  function enableShadows(obj){
     obj.traverse(function(c){
-      if (c.isMesh){
-        if (c.material){
-          const mats = Array.isArray(c.material) ? c.material : [c.material];
-          mats.forEach(function(m){
-            // Force materials to respond to light properly
-            if (m.emissive) m.emissive.setHex(0x000000);
-            if (typeof m.roughness === 'number') m.roughness = 0.85;
-            if (typeof m.metalness === 'number') m.metalness = 0.0;
-            m.side = THREE.DoubleSide;
-            m.needsUpdate = true;
-          });
-        }
+      if (c.isMesh && c.material){
+        const mats = Array.isArray(c.material) ? c.material : [c.material];
+        mats.forEach(function(m){
+          if (m.emissive) m.emissive.setHex(0x000000);
+          if (typeof m.roughness === 'number') m.roughness = 0.85;
+          if (typeof m.metalness === 'number') m.metalness = 0;
+          m.side = THREE.DoubleSide;
+          m.needsUpdate = true;
+        });
       }
     });
   }
@@ -189,22 +166,45 @@
     return arr;
   }
 
+  /* ═══════════════════════════════════════════════════════════
+     RAYCAST — find the actual height of the grass
+     ═══════════════════════════════════════════════════════════ */
+  function findFieldLevel(stadiumModel){
+    const raycaster = new THREE.Raycaster();
+    // Cast from very high above the field centre, straight down
+    raycaster.set(new THREE.Vector3(0, 1000, 0), new THREE.Vector3(0, -1, 0));
+    const hits = raycaster.intersectObject(stadiumModel, true);
+    if (hits.length > 0){
+      console.log('[Raycast] field surface found at y = ' + hits[0].point.y.toFixed(2));
+      return hits[0].point.y;
+    }
+    console.log('[Raycast] no hit — defaulting to y = 0');
+    return 0;
+  }
+
   // ─── PLACE STADIUM ───────────────────────────────────────────
   let stadiumRadius = 100;
+  let fieldY = 0;
 
   function placeStadium(model){
     if (!model) return;
     model.rotation.set(ROT_STADIUM.x, ROT_STADIUM.y, ROT_STADIUM.z);
     autoFit(model, STADIUM_SIZE);
-    enableShadows(model, false);
-    model.position.set(0, 0, 0);
+    enableShadows(model);
+    bottomToZero(model);
+    model.position.x = 0;
+    model.position.z = 0;
     scene.add(model);
 
+    // Measure size
     const box = new THREE.Box3().setFromObject(model);
     const sz = new THREE.Vector3();
     box.getSize(sz);
     stadiumRadius = Math.max(sz.x, sz.z) * 0.6;
     console.log('[Stadium] size: ' + sz.x.toFixed(1) + ' × ' + sz.y.toFixed(1) + ' × ' + sz.z.toFixed(1));
+
+    // Find the actual grass level with a raycast
+    fieldY = findFieldLevel(model);
   }
 
   // ─── PLACE EQUIPMENT ─────────────────────────────────────────
@@ -213,26 +213,23 @@
 
     model.rotation.set(ROT_EQUIPMENT.x, ROT_EQUIPMENT.y, ROT_EQUIPMENT.z);
     autoFit(model, EQUIPMENT_SIZE);
-    enableShadows(model, true);
-    model.position.set(
-      EQUIPMENT_POS_STRIKER.x,
-      EQUIPMENT_POS_STRIKER.y,
-      EQUIPMENT_POS_STRIKER.z
-    );
+    enableShadows(model);
+    bottomToZero(model);          // sit on y = 0 locally
+    model.position.y += fieldY;   // lift to grass level
+    model.position.x = EQUIPMENT_POS_STRIKER.x;
+    model.position.z = EQUIPMENT_POS_STRIKER.z;
     scene.add(model);
 
     const clone = model.clone(true);
     clone.rotation.x = ROT_EQUIPMENT.x || 0;
     clone.rotation.y = (ROT_EQUIPMENT.y || 0) + Math.PI;
     clone.rotation.z = ROT_EQUIPMENT.z || 0;
-    clone.position.set(
-      EQUIPMENT_POS_NONSTRIKER.x,
-      EQUIPMENT_POS_NONSTRIKER.y,
-      EQUIPMENT_POS_NONSTRIKER.z
-    );
+    clone.position.y = fieldY;
+    clone.position.x = EQUIPMENT_POS_NONSTRIKER.x;
+    clone.position.z = EQUIPMENT_POS_NONSTRIKER.z;
     scene.add(clone);
 
-    console.log('[Equipment] placed at both ends');
+    console.log('[Equipment] placed at y = ' + fieldY.toFixed(2));
   }
 
   // ─── PLACE PLAYERS ───────────────────────────────────────────
@@ -256,7 +253,8 @@
       model.scale.set(1, 1, 1);
 
       autoFit(model, PLAYER_SIZE);
-      enableShadows(model, true);
+      enableShadows(model);
+      bottomToZero(model);          // feet at y = 0 locally
 
       model.rotation.x = ROT_PLAYER.x || 0;
       model.rotation.y = pos.rotY || 0;
@@ -264,11 +262,11 @@
 
       model.position.x = pos.x;
       model.position.z = pos.z;
-      model.position.y = pos.y + (model.position.y || 0);
+      model.position.y += fieldY;   // lift to grass level
 
       scene.add(model);
     }
-    console.log('[Players] all 15 placed');
+    console.log('[Players] all 15 placed at y = ' + fieldY.toFixed(2));
   }
 
   function setLoaderProgress(loaded, total){
@@ -303,6 +301,7 @@
       return r ? r.model : null;
     };
 
+    // Stadium first — we need fieldY before placing anything else
     placeStadium(pick('stadium'));
     placeEquipment(pick('equipment'));
 
@@ -324,8 +323,11 @@
       renderer: renderer,
       sun: sun,
       hemi: hemi,
-      stadiumRadius: stadiumRadius
+      stadiumRadius: stadiumRadius,
+      fieldY: fieldY
     };
+
+    console.log('[StadiumView] Ready. fieldY = ' + fieldY.toFixed(2) + ', radius = ' + stadiumRadius.toFixed(1));
   }
 
   window.addEventListener('resize', function(){
