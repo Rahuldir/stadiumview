@@ -1,14 +1,14 @@
 /* ══════════════════════════════════════════════════════════════
-   StadiumView — Kinematics v11.0 (Auto-Targeting & Clone Fix)
-   • FIXED: Duplicated fielders now calculate pitch geometry and face the Striker.
-   • FIXED: Keeper flipped 180° to face the pitch (corrected inverted axis).
-   • FIXED: Hardcoded roles for Striker, Non-Striker, Bowler, Keeper, and Umpires.
-   • FIXED: Keeper crouch depth increased to fix hovering.
+   StadiumView — Kinematics v12.0 (Dynamic Team Jerseys)
+   • ADDED: applyJerseyColors() for dynamic material tinting.
+   • MI Blue & Gold for Bowler, Keeper, and Fielders.
+   • F1 Red & Yellow livery for Striker and Non-Striker.
+   • Material cloning ensures meshes don't share the same color state.
    ══════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
 
-  console.log('%c[players.js] IIFE started — kinematics v11.0 (Targeting Engine)', 'color:#ff9100;font-weight:bold');
+  console.log('%c[players.js] IIFE started — kinematics v12.0 (Jersey Update)', 'color:#00e5ff;font-weight:bold');
 
   const IS_MOBILE_PLAYERS = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
   const BONE_EVERY = IS_MOBILE_PLAYERS ? 3 : 1;
@@ -53,7 +53,7 @@
     'Striker':          { x: -0.32, z: 8.8,   rotY: Math.PI * 0.72, batTilt: 0.25 },
     'Non-Striker':      { x: 1.05,  z: -9.5,  rotY: -Math.PI * 0.22, batTilt: 0.25 },
     'Bowler':           { x: 0.6,   z: -24,   rotY: 0 },
-    'Keeper':           { x: -0.32, z: 12.5,  rotY: 0 }, // Flipped from Math.PI to 0 based on screenshot evidence
+    'Keeper':           { x: -0.32, z: 12.5,  rotY: 0 }, 
     'UmpireBowlersEnd': { x: 0.5,   z: -11.5, rotY: 0 },
     'UmpireSquareLeg':  { x: -14,   z: 8.8,   rotY: Math.PI / 2 }
   };
@@ -129,7 +129,6 @@
     return { bones, slots, rest: {} };
   }
 
-  // World-Space Solver to destroy Zombie T-Pose
   const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _targetDown = new THREE.Vector3(0, -1, 0);
   const _parentQ = new THREE.Quaternion(), _invParentQ = new THREE.Quaternion();
   const _worldRot = new THREE.Quaternion(), _newLocalQ = new THREE.Quaternion();
@@ -195,30 +194,54 @@
     skel.bendAxis = bestAxis;
   }
 
+  // ═════════════════════════════════════════════════════════════
+  //  JERSEY RE-COLORING ENGINE
+  // ═════════════════════════════════════════════════════════════
+  function applyJerseyColors(role, group) {
+    group.traverse(c => {
+      if (c.isMesh && c.material) {
+        // Regex targeting likely clothing meshes to prevent turning skin/hair blue
+        if (/shirt|jersey|cloth|top|apparel/i.test(c.name) || /shirt|jersey|cloth/i.test(c.material.name)) {
+          c.material = c.material.clone();
+          
+          if (role === 'Striker' || role === 'Non-Striker') {
+            // F1-inspired Red & Yellow livery
+            c.material.color.setHex(0xE31837); // Racing Red
+            c.material.emissive.setHex(0xFFD700); // Yellow accent
+            c.material.emissiveIntensity = 0.15;
+          } else if (role.includes('Umpire')) {
+            c.material.color.setHex(0x111111); // Umpire black
+          } else {
+            // Mumbai Blue & Gold
+            c.material.color.setHex(0x004BA0); // MI Blue
+            c.material.emissive.setHex(0xD4AF37); // Gold accent
+            c.material.emissiveIntensity = 0.15;
+          }
+        }
+      }
+    });
+  }
+
   function makePlayer(role, group, accessoryRef){
     const skel = buildSkeleton(group);
     if (skel.bones.length === 0) return null;
 
     const stance = STANCE_OVERRIDES[role];
     if (stance){
-      // Lock Main 5
       group.position.set(stance.x, group.position.y, stance.z);
       group.rotation.y = stance.rotY;
     } else {
-      // AUTO-TARGETING FOR CLONED FIELDERS
-      // Calculate rotation to face the Striker at (0, 0, 8.8)
       const targetX = 0;
       const targetZ = 8.8;
       const dx = targetX - group.position.x;
       const dz = targetZ - group.position.z;
-      
-      // Standard mathematical calculation to force mesh to face the center of action
       group.rotation.y = Math.atan2(dx, dz) + Math.PI; 
     }
     
     group.updateMatrixWorld(true);
     bakeRestPose(skel);
     calibrateRig(skel);
+    applyJerseyColors(role, group); // Inject Team Colors
 
     const playerObj = {
       role, group, skel, stance: stance || null,
@@ -305,16 +328,14 @@
           if(sk.slots.rUpperArm) pointBoneDown(sk.slots.rUpperArm, new THREE.Vector3(0.5, -0.5, 0.5).normalize());
         }
         else if (p.role === 'Keeper') {
-          // Deepened the Keeper squat to fix the hovering bug
           dBend(sk, 'lThigh', -1.4); dBend(sk, 'lShin', 1.8); 
           dBend(sk, 'rThigh', -1.4); dBend(sk, 'rShin', 1.8); 
-          p.group.position.y = p.home.y - 0.65; // Dropped significantly
+          p.group.position.y = p.home.y - 0.65; 
           
           if(sk.slots.lUpperArm) pointBoneDown(sk.slots.lUpperArm, new THREE.Vector3(0, -0.5, 0.8).normalize());
           if(sk.slots.rUpperArm) pointBoneDown(sk.slots.rUpperArm, new THREE.Vector3(0, -0.5, 0.8).normalize());
         }
         else {
-           // Base Fielder/Umpire stance
            dBend(sk, 'lThigh', -0.1); dBend(sk, 'rThigh', -0.1);
         }
       } 
@@ -414,6 +435,6 @@
     }
 
     window.PlayerControl = { players, play };
-    console.log('[PlayerControl] ✅ Ready — Targeting Engine Active');
+    console.log('[PlayerControl] ✅ Ready — Jersey Engine Active');
   }
 })();
