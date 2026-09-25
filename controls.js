@@ -1,8 +1,8 @@
 /* ══════════════════════════════════════════════════════════════
-   StadiumView — camera controls + Auto Director + flood lights
-   • Every view target is relative to fieldY (grass level)
-   • Camera Y is clamped to never drop below grass + 0.5 m
-   • Phi clamped to (0.05 … π*0.49) — no underground angles
+   StadiumView — Camera Controls & Lighting (Angles Fixed)
+   • Camera spawns directly in TV Broadcast view
+   • Zoom is locked to a maximum of 120m (prevents leaving stadium)
+   • Dynamic tracking to the pitch grass level
    ══════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
@@ -14,137 +14,85 @@
   }, 50);
 
   function init(){
-    const SV = window.StadiumView;
-    const scene    = SV.scene;
-    const camera   = SV.camera;
-    const renderer = SV.renderer;
-    const sun      = SV.sun     || null;
-    const hemi     = SV.hemi    || null;
-    const ambient  = SV.ambient || null;
+    const { scene, camera } = window.StadiumView;
+    const renderer = window.StadiumView.renderer;
 
-    // Ground reference — every camera target is relative to this
-    const F = SV.fieldY || 0;
+    const V = THREE.Vector3;
+    
+    // Broadcast camera angles (Radii are kept tight so camera stays inside)
+    const VIEWS = {
+      overview: { t: new V(0, 5, 0),    th: Math.PI * 0.25, ph: Math.PI * 0.35, r: 85 },
+      pitch:    { t: new V(0, 2, 0),    th: Math.PI * 0.5,  ph: Math.PI * 0.45, r: 40 },
+      batting:  { t: new V(0, 2, 8),    th: Math.PI * 0.5,  ph: Math.PI * 0.48, r: 15 },
+      aerial:   { t: new V(0, 0, 0),    th: Math.PI * 0.25, ph: 0.01,           r: 110 },
+      tv:       { t: new V(0, 2, 9),    th: Math.PI * 0.5,  ph: Math.PI * 0.48, r: 35 },
+      tvlong:   { t: new V(0, 2, 9),    th: Math.PI * 0.5,  ph: Math.PI * 0.46, r: 60 },
+      tvhigh:   { t: new V(0, 5, 9),    th: Math.PI * 0.5,  ph: Math.PI * 0.38, r: 45 },
+      bowler:   { t: new V(0, 2, -10),  th: 0,              ph: Math.PI * 0.45, r: 25 },
+      batsman:  { t: new V(0, 2, 10),   th: Math.PI,        ph: Math.PI * 0.45, r: 25 },
+      closeup:  { t: new V(0, 1.5, 8.6),th: Math.PI * 1.15, ph: Math.PI * 0.42, r: 6 },
+      stumps:   { t: new V(0, 1, 10),   th: 0,              ph: Math.PI * 0.5,  r: 4 },
+      sideon:   { t: new V(0, 2, 0),    th: Math.PI * 0.5,  ph: Math.PI * 0.45, r: 40 }
+    };
 
-    const target = new THREE.Vector3(0, F + 10, 0);
-    let theta  = Math.PI * 0.25;
-    let phi    = Math.PI * 0.32;
-    let radius = 240;
-
-    // ─── Hard clamp for phi (never horizontal-below, never top-down) ───
-    const PHI_MIN = 0.10;              // ~6°    (nearly top-down)
-    const PHI_MAX = Math.PI * 0.48;    // ~86°   (nearly horizontal, still above)
-
-    function clampPhi(v){
-      return Math.max(PHI_MIN, Math.min(PHI_MAX, v));
-    }
-
-    // ─── Update camera with ground protection ─────────────────────────
-    const GROUND_CLEARANCE = 0.5;      // camera never below grass + 0.5 m
-    const HARD_MIN_Y       = F + GROUND_CLEARANCE;
+    // SPAWN FIX: Start exactly at the TV Broadcast angle instead of 400m away
+    const startView = VIEWS.tv;
+    const target = startView.t.clone();
+    let theta  = startView.th;
+    let phi    = startView.ph;
+    let radius = startView.r;
 
     function updateCamera(){
-      phi = clampPhi(phi);
-
-      const x = target.x + radius * Math.sin(phi) * Math.cos(theta);
-      let   y = target.y + radius * Math.cos(phi);
-      const z = target.z + radius * Math.sin(phi) * Math.sin(theta);
-
-      // Hard floor — camera never goes underground
-      if (y < HARD_MIN_Y) y = HARD_MIN_Y;
-
+      const currentFieldY = window.StadiumView.fieldY || 0;
+      const actualTarget = new THREE.Vector3(target.x, target.y + currentFieldY, target.z);
+      
+      const x = actualTarget.x + radius * Math.sin(phi) * Math.cos(theta);
+      const y = actualTarget.y + radius * Math.cos(phi);
+      const z = actualTarget.z + radius * Math.sin(phi) * Math.sin(theta);
       camera.position.set(x, y, z);
-      camera.lookAt(target);
+      camera.lookAt(actualTarget);
     }
     updateCamera();
 
-    // ─── Mouse drag ──────────────────────────────────────────
     let dragging = false, lastX = 0, lastY = 0;
     renderer.domElement.addEventListener('pointerdown', function(e){
       dragging = true; lastX = e.clientX; lastY = e.clientY;
-      if (autoDirector.active) stopAutoDirector();
     });
     renderer.domElement.addEventListener('pointermove', function(e){
       if (!dragging) return;
       theta -= (e.clientX - lastX) * 0.005;
       phi   -= (e.clientY - lastY) * 0.005;
-      phi = clampPhi(phi);
+      phi = Math.max(0.01, Math.min(Math.PI * 0.49, phi)); // Prevents clipping under the grass
       lastX = e.clientX; lastY = e.clientY;
       updateCamera();
     });
-    renderer.domElement.addEventListener('pointerup',    function(){ dragging = false; });
+    renderer.domElement.addEventListener('pointerup', function(){ dragging = false; });
     renderer.domElement.addEventListener('pointerleave', function(){ dragging = false; });
 
-    // ─── Wheel zoom ──────────────────────────────────────────
+    // ZOOM FIX: Hard-locked to max 120 meters so camera never clips outside the stadium
     renderer.domElement.addEventListener('wheel', function(e){
       e.preventDefault();
-      if (autoDirector.active) stopAutoDirector();
-      radius = Math.max(2, Math.min(600, radius + e.deltaY * 0.5));
+      radius = Math.max(3, Math.min(120, radius + e.deltaY * 0.05));
       updateCamera();
     }, { passive: false });
 
-    // ─── Pinch zoom ──────────────────────────────────────────
-    let lastPinch = 0;
-    renderer.domElement.addEventListener('touchmove', function(e){
-      if (e.touches.length === 2){
-        if (autoDirector.active) stopAutoDirector();
-        const dx = e.touches[0].clientX - e.touches[1].clientX;
-        const dy = e.touches[0].clientY - e.touches[1].clientY;
-        const dist = Math.sqrt(dx*dx + dy*dy);
-        if (lastPinch > 0){
-          radius = Math.max(2, Math.min(600, radius - (dist - lastPinch) * 1.2));
-          updateCamera();
-        }
-        lastPinch = dist;
-      }
-    }, { passive: true });
-    renderer.domElement.addEventListener('touchend', function(){ lastPinch = 0; });
-
-    // ─── Tween ───────────────────────────────────────────────
     function smoothTo(newTarget, newTheta, newPhi, newRadius, duration){
-      const sT   = target.clone();
-      const sTh  = theta;
-      const sP   = phi;
-      const sR   = radius;
-      const tPhi = clampPhi(newPhi);
-      const t0   = performance.now();
-      const dur  = duration || 900;
-
+      const sT = target.clone();
+      const sTh = theta, sP = phi, sR = radius;
+      const t0 = performance.now();
+      const dur = duration || 900;
       function step(){
         const t = Math.min(1, (performance.now() - t0) / dur);
         const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
         target.lerpVectors(sT, newTarget, e);
-        theta  = sTh + (newTheta  - sTh) * e;
-        phi    = sP  + (tPhi     - sP)  * e;
-        radius = sR  + (newRadius - sR) * e;
+        theta = sTh + (newTheta - sTh) * e;
+        phi   = sP  + (newPhi   - sP)  * e;
+        radius = sR + (newRadius - sR) * e;
         updateCamera();
         if (t < 1) requestAnimationFrame(step);
       }
       requestAnimationFrame(step);
     }
-
-    // ─── Views ───────────────────────────────────────────────
-    // Helper: Y values are ALWAYS relative to ground level (F).
-    // All radii tuned so the camera stays inside/just outside the bowl.
-    const V = THREE.Vector3;
-    function v(x, y, z){ return new V(x, F + y, z); }
-
-    const VIEWS = {
-      //     target (x, y-above-grass, z)   theta               phi                radius
-      overview:  { t: v(0,    10,  0),       th: Math.PI * 0.25, ph: Math.PI * 0.30, r: 220 },
-      tv:        { t: v(0,     4,  0),       th: 0,              ph: Math.PI * 0.40, r: 60  },
-      tvlong:    { t: v(0,     4,  0),       th: 0,              ph: Math.PI * 0.42, r: 90  },
-      tvhigh:    { t: v(0,     4,  0),       th: 0,              ph: Math.PI * 0.28, r: 65  },
-      bowler:    { t: v(0,     2,  8.6),     th: -Math.PI * 0.50, ph: Math.PI * 0.42, r: 32  },
-      batsman:   { t: v(0.4,   2,  8.6),     th: Math.PI * 0.50,  ph: Math.PI * 0.42, r: 12  },
-      batting:   { t: v(0.4,   2,  8.6),     th: Math.PI * 0.50,  ph: Math.PI * 0.42, r: 12  },
-      closeup:   { t: v(0.4,   1.4, 8.6),    th: -Math.PI * 0.35, ph: Math.PI * 0.42, r: 4.5 },
-      stumps:    { t: v(0.4,   1.0, 8.6),    th: Math.PI * 0.50,  ph: Math.PI * 0.42, r: 3   },
-      sideOn:    { t: v(0,     2,  0),       th: 0,              ph: Math.PI * 0.46, r: 26  },
-      pitch:     { t: v(0,     1,  0),       th: 0,              ph: Math.PI * 0.42, r: 20  },
-      aerial:    { t: v(0,     0,  0),       th: Math.PI * 0.25, ph: 0.14,           r: 260 },
-      spider:    { t: v(0,     6,  0),       th: Math.PI * 0.75, ph: Math.PI * 0.35, r: 42  },
-      drone:     { t: v(0,     4,  5),       th: Math.PI * 1.2,  ph: Math.PI * 0.35, r: 65  }
-    };
 
     function applyView(name){
       const v = VIEWS[name];
@@ -155,115 +103,64 @@
       });
     }
 
-    // ─── Auto Director ───────────────────────────────────────
-    const autoDirector = {
-      active: false,
-      order: ['tv', 'bowler', 'closeup', 'sideOn', 'tvhigh', 'spider', 'stumps', 'tvlong', 'aerial'],
-      index: 0,
-      timer: null,
-      holdMs: 4500
-    };
-
-    function nextAutoView(){
-      if (!autoDirector.active) return;
-      const name = autoDirector.order[autoDirector.index % autoDirector.order.length];
-      autoDirector.index++;
-      applyView(name);
-      autoDirector.timer = setTimeout(nextAutoView, autoDirector.holdMs);
-    }
-    function startAutoDirector(){
-      if (autoDirector.active) return;
-      autoDirector.active = true;
-      autoDirector.index = 0;
-      const b = document.getElementById('btn-auto');
-      if (b){ b.classList.add('on'); b.textContent = '⏸ Stop Director'; }
-      nextAutoView();
-    }
-    function stopAutoDirector(){
-      autoDirector.active = false;
-      if (autoDirector.timer) clearTimeout(autoDirector.timer);
-      autoDirector.timer = null;
-      const b = document.getElementById('btn-auto');
-      if (b){ b.classList.remove('on'); b.textContent = '▶ Auto Director'; }
-    }
-    function toggleAutoDirector(){
-      if (autoDirector.active) stopAutoDirector();
-      else startAutoDirector();
-    }
-
-    // ─── Time of day ─────────────────────────────────────────
-    const setFloods = (typeof SV.setFloodlights === 'function') ? SV.setFloodlights : function(){};
-    const floodCount = (SV.floodLights || []).length;
-
+    // ─── STADIUM FLOODLIGHT LOGIC ─────────────────────────
     function setTime(mode){
-      if (!scene) return;
+      const { scene, sun, hemi, ambient, renderer } = window.StadiumView;
+      const bg = mode === 'day' ? 0x87b8e0 : mode === 'sunset' ? 0xd97742 : 0x01050a;
+               
+      if (scene.background) scene.background.setHex(bg);
+      if (scene.fog && scene.fog.color) scene.fog.color.setHex(bg);
 
-      const bgHex = mode === 'day'    ? 0x87b8e0
-                  : mode === 'sunset' ? 0x4a1f16
-                  :                     0x01040a;
+      if (!window.StadiumView.physicalLights) {
+        window.StadiumView.physicalLights = [];
+        const topY = window.StadiumView.stadiumTopY || 50;
+        const rad = window.StadiumView.stadiumRadius || 80;
+        const corners = [[-rad, topY, -rad], [rad, topY, -rad], [-rad, topY, rad], [rad, topY, rad]];
+        
+        corners.forEach(pos => {
+          const spot = new THREE.SpotLight(0xfff5e6, 0, 800, Math.PI * 0.25, 0.5, 0); 
+          spot.position.set(pos[0], pos[1], pos[2]);
+          spot.target.position.set(0, window.StadiumView.fieldY || 0, 0);
+          scene.add(spot);
+          scene.add(spot.target);
+          window.StadiumView.physicalLights.push(spot);
+        });
+      }
 
-      if (scene.background && scene.background.setHex){
-        scene.background.setHex(bgHex);
+      if (mode === 'day'){
+        if (ambient) ambient.intensity = 0.8;
+        hemi.intensity = 0.6;
+        sun.intensity  = 1.5;
+        sun.color.setHex(0xffffff);
+        window.StadiumView.physicalLights.forEach(fl => fl.intensity = 0);
+        window.StadiumView.setFloodlights(0); 
+        renderer.toneMappingExposure = 1.0; 
+        
+      } else if (mode === 'sunset'){
+        if (ambient) ambient.intensity = 0.4;
+        hemi.intensity = 0.3;
+        sun.intensity  = 1.2;
+        sun.color.setHex(0xff8855);
+        window.StadiumView.physicalLights.forEach(fl => fl.intensity = 0);
+        window.StadiumView.setFloodlights(0);
+        renderer.toneMappingExposure = 0.85; 
+        
       } else {
-        scene.background = new THREE.Color(bgHex);
+        if (ambient) ambient.intensity = 0.05; 
+        hemi.intensity = 0.08; 
+        sun.intensity  = 0; 
+        window.StadiumView.physicalLights.forEach(fl => fl.intensity = 1.2);
+        window.StadiumView.setFloodlights(1); 
+        renderer.toneMappingExposure = 0.9; 
       }
-
-      if (ambient) ambient.intensity = mode === 'day' ? 0.8
-                                    : mode === 'sunset' ? 0.35
-                                    : 0.02;
-      if (hemi)    hemi.intensity    = mode === 'day' ? 0.6
-                                    : mode === 'sunset' ? 0.35
-                                    : 0.05;
-
-      if (sun){
-        sun.intensity = mode === 'day' ? 1.5
-                      : mode === 'sunset' ? 0.85
-                      : 0.0;
-        if (sun.color && sun.color.setHex){
-          sun.color.setHex(mode === 'day' ? 0xffffff
-                         : mode === 'sunset' ? 0xff8855
-                         : 0x8090ff);
-        }
-        if (sun.position && sun.position.set){
-          if (mode === 'sunset')       sun.position.set(300, 60, -200);
-          else if (mode === 'night')   sun.position.set(-150, 200, 80);
-          else                         sun.position.set(80, 400, 80);
-        }
-      }
-
-      if (scene.fog && scene.fog.color && scene.fog.color.setHex){
-        scene.fog.color.setHex(bgHex);
-      }
-
-      setFloods(mode === 'night' ? 1.0 : mode === 'sunset' ? 0.35 : 0.0);
-
-      if (renderer){
-        renderer.toneMappingExposure = mode === 'night'  ? 0.75
-                                     : mode === 'sunset' ? 0.95
-                                     : 1.0;
-      }
-
-      console.log('[Time] ' + mode + ' — floods=' + floodCount +
-                  ' set=' + (mode === 'night' ? 'FULL' : mode === 'sunset' ? '35%' : 'OFF'));
     }
 
-    // ─── Inject controls ─────────────────────────────────────
     function injectControls(){
       const bar = document.getElementById('controls');
       if (!bar) return;
 
-      if (!document.getElementById('btn-auto')){
-        const autoBtn = document.createElement('button');
-        autoBtn.id = 'btn-auto';
-        autoBtn.textContent = '▶ Auto Director';
-        autoBtn.addEventListener('click', toggleAutoDirector);
-        bar.appendChild(autoBtn);
-      }
-
       const viewBtnRow = document.createElement('div');
-      viewBtnRow.style.cssText =
-        'display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;padding-top:6px;' +
-        'border-top:1px solid rgba(255,255,255,.1);width:100%;justify-content:center;';
+      viewBtnRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,.1);width:100%;justify-content:center;';
 
       Object.keys(VIEWS).forEach(function(key){
         const btn = document.createElement('button');
@@ -273,13 +170,11 @@
         btn.style.fontSize = '9.5px';
         viewBtnRow.appendChild(btn);
       });
+
       bar.appendChild(viewBtnRow);
 
       bar.querySelectorAll('button[data-view]').forEach(function(b){
-        b.addEventListener('click', function(){
-          if (autoDirector.active) stopAutoDirector();
-          applyView(b.getAttribute('data-view'));
-        });
+        b.addEventListener('click', function(){ applyView(b.getAttribute('data-view')); });
       });
 
       bar.querySelectorAll('button[data-time]').forEach(function(b){
@@ -289,20 +184,11 @@
           b.classList.add('on');
         });
       });
-
-      const activeTime = bar.querySelector('button[data-time].on') || bar.querySelector('button[data-time]');
-      if (activeTime) setTime(activeTime.getAttribute('data-time'));
+      
+      // Auto-click TV view on spawn to light up the UI toggle
+      setTimeout(() => applyView('tv'), 100);
     }
     injectControls();
-
-    document.addEventListener('keydown', function(e){
-      if (e.code === 'Space'){ e.preventDefault(); toggleAutoDirector(); }
-    });
-
-    console.log('[Camera] ground = y ' + F.toFixed(2) + ' — floor clamp = y ' +
-                HARD_MIN_Y.toFixed(2) + ' · phi range [' +
-                PHI_MIN.toFixed(2) + '…' + PHI_MAX.toFixed(2) + ']');
-    console.log('[StadiumView] ✅ Controls ready — flood lights: ' + floodCount);
   }
 
 })();
