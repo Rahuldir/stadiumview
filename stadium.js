@@ -1,5 +1,5 @@
 /* ══════════════════════════════════════════════════════════════
-   StadiumView — with player debug + replay screen fixes
+   StadiumView — full cricket setup, no crash
    ══════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
@@ -14,9 +14,8 @@
   const STADIUM_SIZE = 200;
   const PLAYER_SIZE  = 1.9;
 
-  // Debug: fallback capsule will show where each player is
-  const DEBUG_CAPSULES = true;    // ← shows orange capsules if models don't render
-  const DEBUG_MARKERS  = false;   // ← pink spheres at feet (can turn on if needed)
+  // Debug: pink spheres at feet (turn off once satisfied)
+  const DEBUG_MARKERS = false;
 
   const ROT_STADIUM = { x: 0, y: 0, z: 0 };
 
@@ -137,7 +136,6 @@
     model.position.y -= nb.min.y;
   }
 
-  /* Aggressive: force EVERYTHING visible with normal materials */
   function forceVisible(obj){
     let meshCount = 0, transparentCount = 0;
     obj.traverse(function(c){
@@ -225,22 +223,18 @@
     return g;
   }
 
-  /* ═══════════════════════════════════════════════════════════
-     REPLAY SCREEN — smaller, mounted in the stands
-     ═══════════════════════════════════════════════════════════ */
+  // ─── REPLAY SCREEN ───────────────────────────────────────────
   function buildReplayScreen(x, z, rotY, fieldY){
     const W = 25, H = 14, D = 0.6;
 
     const group = new THREE.Group();
 
-    // Frame
     const frame = new THREE.Mesh(
       new THREE.BoxGeometry(W + 1.2, H + 1.2, D),
       new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.7, metalness: 0.3 })
     );
     group.add(frame);
 
-    // Canvas
     const cvs = document.createElement('canvas');
     cvs.width = 1024; cvs.height = 576;
     const ctx = cvs.getContext('2d');
@@ -282,7 +276,6 @@
     screen.position.z = D / 2 + 0.05;
     group.add(screen);
 
-    // Mount screen low, so it's visibly inside the stands
     group.position.set(x, fieldY + H / 2 + 4, z);
     group.rotation.y = rotY;
     scene.add(group);
@@ -298,7 +291,6 @@
     if (!model) return;
     model.rotation.set(ROT_STADIUM.x, ROT_STADIUM.y, ROT_STADIUM.z);
     autoFit(model, STADIUM_SIZE);
-    // Don't force materials on the stadium — keep its own look
     model.traverse(function(c){
       if (c.isMesh){ c.castShadow = false; c.receiveShadow = false; }
     });
@@ -363,22 +355,6 @@
         group.add(ball);
       }
 
-      // Fallback capsule — visible if model doesn't render
-      if (DEBUG_CAPSULES){
-        const capsule = new THREE.Mesh(
-          new THREE.CapsuleGeometry(0.4, 1.0, 6, 12),
-          new THREE.MeshStandardMaterial({
-            color: 0xff8800,
-            transparent: true,
-            opacity: 0.35,
-            emissive: 0xff8800,
-            emissiveIntensity: 0.2
-          })
-        );
-        capsule.position.y = 0.9;
-        group.add(capsule);
-      }
-
       if (DEBUG_MARKERS){
         const marker = new THREE.Mesh(
           new THREE.SphereGeometry(0.35, 12, 12),
@@ -395,7 +371,7 @@
 
       scene.add(group);
     }
-    console.log('[Players] placed');
+    console.log('[Players] placed ' + FIELD_POSITIONS.length + ' groups');
   }
 
   function setLoaderProgress(loaded, total){
@@ -431,9 +407,7 @@
 
     placeStadium(pick('stadium'));
 
-    // Replay screens — inside the stadium, in the stands
-    // Stadium is 200m wide, grass is ~35m radius
-    // Stands occupy radius 40–100m. Put screens at ~55m from center.
+    // Replay screens inside stands
     buildReplayScreen( 55, 0, -Math.PI / 2, fieldY);
     buildReplayScreen(-55, 0,  Math.PI / 2, fieldY);
 
