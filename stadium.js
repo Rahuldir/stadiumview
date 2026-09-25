@@ -1,8 +1,18 @@
-/* StadiumView — mobile-aware scene builder */
+/* ══════════════════════════════════════════════════════════════
+   StadiumView — standalone scene builder (no external deps)
+   ══════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
 
-  console.log('%c[stadium.js] mobile-aware v4.0', 'color:#00e676;font-weight:bold');
+  console.log('%c[stadium.js] standalone v4.1', 'color:#00e676;font-weight:bold');
+
+  // ─── Inlined mobile detection ───────────────────────────
+  const ua = navigator.userAgent || '';
+  const IS_MOBILE =
+    /Android|iPhone|iPad|iPod|Mobile|Silk|Kindle|BlackBerry|Opera Mini/i.test(ua)
+    || (navigator.maxTouchPoints > 1 && window.innerWidth < 900);
+  const PIXEL_RATIO = IS_MOBILE ? 1 : Math.min(window.devicePixelRatio || 1, 2);
+  console.log('[Perf] ' + (IS_MOBILE ? 'MOBILE' : 'DESKTOP') + ' · pixelRatio=' + PIXEL_RATIO);
 
   const STADIUM_FILE = 'models/stadium.glb';
   const PLAYER_FILES = [
@@ -19,36 +29,35 @@
   const TOWER_Y         = 46;
 
   const FIELD_POSITIONS = [
-    { role:'Striker',           x: 0.4,y:0,z: 8.6, rotY:Math.PI,       hasBat:true  },
-    { role:'Non-Striker',       x:-1.2,y:0,z:-8.6, rotY:0,             hasBat:true  },
-    { role:'Umpire (Bowl End)', x:-1.0,y:0,z:-11.5,rotY:0                            },
-    { role:'Umpire (Sq Leg)',   x:-13, y:0,z: 0,   rotY:Math.PI*0.5                  },
-    { role:'Bowler',            x: 0.5,y:0,z:-24,  rotY:0,             hasBall:true },
-    { role:'Keeper',            x: 0,  y:0,z: 14,  rotY:Math.PI                      },
-    { role:'Slip',              x: 3,  y:0,z: 14.5,rotY:Math.PI                      },
-    { role:'Third Man',         x: 15, y:0,z: 22,  rotY:Math.PI*0.9                  },
-    { role:'Point',             x: 24, y:0,z: 5,   rotY:Math.PI*0.85                 },
-    { role:'Cover',             x: 21, y:0,z:-14,  rotY:Math.PI*0.62                 },
-    { role:'Mid-Off',           x: 9,  y:0,z:-25,  rotY:Math.PI*0.12                 },
-    { role:'Mid-On',            x:-9,  y:0,z:-25,  rotY:-Math.PI*0.12                },
-    { role:'Mid-Wicket',        x:-22, y:0,z:-14,  rotY:-Math.PI*0.6                 },
-    { role:'Square Leg',        x:-24, y:0,z: 4,   rotY:-Math.PI*0.85                },
-    { role:'Fine Leg',          x:-15, y:0,z: 22,  rotY:Math.PI*1.15                 }
+    { role:'Striker',           x: 0.4, y:0, z: 8.6, rotY:Math.PI,       hasBat:true  },
+    { role:'Non-Striker',       x:-1.2, y:0, z:-8.6, rotY:0,             hasBat:true  },
+    { role:'Umpire (Bowl End)', x:-1.0, y:0, z:-11.5,rotY:0                            },
+    { role:'Umpire (Sq Leg)',   x:-13,  y:0, z: 0,   rotY:Math.PI*0.5                  },
+    { role:'Bowler',            x: 0.5, y:0, z:-24,  rotY:0,             hasBall:true },
+    { role:'Keeper',            x: 0,   y:0, z: 14,  rotY:Math.PI                      },
+    { role:'Slip',              x: 3,   y:0, z: 14.5,rotY:Math.PI                      },
+    { role:'Third Man',         x: 15,  y:0, z: 22,  rotY:Math.PI*0.9                  },
+    { role:'Point',             x: 24,  y:0, z: 5,   rotY:Math.PI*0.85                 },
+    { role:'Cover',             x: 21,  y:0, z:-14,  rotY:Math.PI*0.62                 },
+    { role:'Mid-Off',           x: 9,   y:0, z:-25,  rotY:Math.PI*0.12                 },
+    { role:'Mid-On',            x:-9,   y:0, z:-25,  rotY:-Math.PI*0.12                },
+    { role:'Mid-Wicket',        x:-22,  y:0, z:-14,  rotY:-Math.PI*0.6                 },
+    { role:'Square Leg',        x:-24,  y:0, z: 4,   rotY:-Math.PI*0.85                },
+    { role:'Fine Leg',          x:-15,  y:0, z: 22,  rotY:Math.PI*1.15                 }
   ];
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x87b8e0);
   scene.fog = null;
 
-  const camera = new THREE.PerspectiveCamera(
-    55, innerWidth/innerHeight, 0.3, 2000
-  );
+  const camera = new THREE.PerspectiveCamera(55, innerWidth/innerHeight, 0.3, 2000);
+
   const renderer = new THREE.WebGLRenderer({
-    antialias: !window.IS_MOBILE,
-    powerPreference: window.IS_MOBILE ? 'default' : 'high-performance',
+    antialias: !IS_MOBILE,
+    powerPreference: IS_MOBILE ? 'default' : 'high-performance',
     alpha: false
   });
-  renderer.setPixelRatio(window.PERF.pixelRatio);
+  renderer.setPixelRatio(PIXEL_RATIO);
   renderer.setSize(innerWidth, innerHeight);
   renderer.shadowMap.enabled = false;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -69,7 +78,7 @@
       const draco = new THREE.DRACOLoader();
       draco.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/draco/');
       loader.setDRACOLoader(draco);
-      console.log('[Loader] DRACO attached');
+      console.log('[Loader] DRACO attached ✅');
     } catch(e){}
   }
 
@@ -93,6 +102,7 @@
       }, function(){
         loadStatus[key] = { status:'failed' };
         updateList();
+        console.warn('[StadiumView] ❌ ' + key);
         resolve(null);
       });
     });
@@ -139,7 +149,7 @@
   function forceVisible(obj){
     obj.traverse(function(c){
       c.visible = true;
-      c.frustumCulled = true;   // mobile-friendly
+      c.frustumCulled = true;
       if (c.isMesh && c.material){
         const mats = Array.isArray(c.material) ? c.material : [c.material];
         mats.forEach(function(m){
@@ -157,7 +167,6 @@
   function findFieldLevel(stadium){
     const raycaster = new THREE.Raycaster();
     const down = new THREE.Vector3(0,-1,0);
-    let bestY = 0, bestCount = 0;
     const counts = {};
     for (let x = -15; x <= 15; x += 3){
       for (let z = -15; z <= 15; z += 3){
@@ -169,6 +178,7 @@
         }
       }
     }
+    let bestY = 0, bestCount = 0;
     Object.keys(counts).forEach(function(k){
       if (counts[k] > bestCount){ bestCount = counts[k]; bestY = parseFloat(k); }
     });
@@ -207,6 +217,7 @@
 
   let fieldY = 7.19;
   let stadiumModel = null;
+  let stadiumRadius = 100;
 
   function placeStadium(model){
     if (!model) return;
@@ -222,18 +233,21 @@
     model.traverse(function(c){
       if (c.isMesh){ c.castShadow = false; c.receiveShadow = false; }
     });
+
+    const box = new THREE.Box3().setFromObject(model);
+    const sz = new THREE.Vector3(); box.getSize(sz);
+    stadiumRadius = Math.max(sz.x, sz.z) * 0.6;
+    console.log('[Stadium] size ' + sz.x.toFixed(1) + '×' + sz.y.toFixed(1) + '×' + sz.z.toFixed(1));
   }
 
-  // ═══════════════════════════════════════════════════════════
-  //  FLOOD LIGHTS — 4 corner, mobile-reduced
-  // ═══════════════════════════════════════════════════════════
+  // ─── Flood lights ─────────────────────────────────────
   const floodLights = [];
 
   function attachFloodlight(x, z){
     const yWorld = fieldY + TOWER_Y;
     let spot = null;
 
-    if (window.PERF.lightsEnabled){
+    if (!IS_MOBILE){
       spot = new THREE.SpotLight(0xffe9c0, 0, 500, Math.PI*0.28, 0.6, 0);
       spot.position.set(x, yWorld, z);
       spot.target.position.set(0, fieldY, 0);
@@ -252,9 +266,8 @@
     panel.lookAt(0, fieldY, 0);
     scene.add(panel);
 
-    // Mobile fallback: a point light (cheaper) at each tower
     let cheapLight = null;
-    if (!window.PERF.lightsEnabled){
+    if (IS_MOBILE){
       cheapLight = new THREE.PointLight(0xffe9c0, 0, 220, 1.2);
       cheapLight.position.set(x, yWorld - 2, z);
       scene.add(cheapLight);
@@ -263,8 +276,8 @@
     const ref = {
       spot, panel, panelMat, cheapLight,
       setGlow: function(v){
-        if (spot)        spot.intensity = v * 5.0;
-        if (cheapLight)  cheapLight.intensity = v * 0.9;
+        if (spot)       spot.intensity = v * 5.0;
+        if (cheapLight) cheapLight.intensity = v * 0.9;
         panelMat.opacity = v;
         panelMat.color.setRGB(0.15 + v*0.85, 0.15 + v*0.85, 0.10 + v*0.90);
       }
@@ -276,14 +289,12 @@
   function buildFloodlights(){
     const R = TOWER_XZ;
     [[R,R],[-R,R],[R,-R],[-R,-R]].forEach(function(p){ attachFloodlight(p[0], p[1]); });
-    console.log('[Floodlights] 4 towers · ' + (window.PERF.lightsEnabled ? 'spotlights' : 'point-light fallback'));
+    console.log('[Floodlights] 4 towers · ' + (IS_MOBILE ? 'point-light fallback' : 'spotlights'));
   }
 
-  // ═══════════════════════════════════════════════════════════
-  //  AD BOARDS — mobile uses solid colors, no canvas textures
-  // ═══════════════════════════════════════════════════════════
+  // ─── Ad boards ────────────────────────────────────────
   function buildAdBoards(){
-    const count = window.PERF.maxAdBoards;
+    const count = IS_MOBILE ? 10 : 24;
     const colors = [0x0a0e1a, 0x7f1d1d, 0x0a0e1a, 0x111111, 0x1e3a8a, 0x0a0e1a];
     const H = 1.0, W = 5.0, R = BOUNDARY_RADIUS + 1.5;
 
@@ -340,7 +351,7 @@
       scene.add(group);
       playerRefs[pos.role] = group;
     });
-    console.log('[Players] ' + Object.keys(playerRefs).length + ' placed');
+    console.log('[Players] ' + Object.keys(playerRefs).length + ' placed @ y=' + fieldY.toFixed(2));
   }
 
   async function boot(){
@@ -360,11 +371,13 @@
         done++;
         const sub = document.getElementById('loaderSub');
         const txt = document.getElementById('loaderText');
-        if (sub) sub.textContent = done + ' / ' + tasks.length;
+        if (sub) sub.textContent = done + ' / ' + tasks.length + ' models';
         if (txt && done === tasks.length) txt.textContent = 'Ready';
         return { type:t.type, model:m, pos:t.pos };
       });
     }));
+
+    console.log('[Boot] all models resolved');
 
     const stadium = results.find(function(r){ return r.type === 'stadium'; });
     placeStadium(stadium ? stadium.model : null);
@@ -378,7 +391,7 @@
 
     window.StadiumView = {
       scene, camera, renderer, sun, hemi, ambient,
-      stadiumModel, fieldY,
+      stadiumModel, stadiumRadius, fieldY,
       players: playerRefs,
       accessories: accessoryRefs,
       stumpsStriker: stumpsA, stumpsBowler: stumpsB,
@@ -387,6 +400,7 @@
       setFloodlights: function(v){ floodLights.forEach(function(f){ f.setGlow(v); }); }
     };
     console.log('[StadiumView] Ready. fieldY=' + fieldY.toFixed(2) +
+                ' · floods=' + floodLights.length +
                 ' · players=' + Object.keys(playerRefs).length);
   }
 
