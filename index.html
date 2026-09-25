@@ -600,7 +600,74 @@
   update();
   console.log('[F1Loader] ✅ loaded');
 })();
+</script> <!-- ═══════════════════════════════════════════════════════════
+     THREE.JS + LOADERS  (with debug hooks)
+     ═══════════════════════════════════════════════════════════ -->
+<script>
+(function(){
+  console.log('%c[Boot] starting script load sequence', 'color:#e10600;font-weight:bold');
+  window.__bootLog = [];
+
+  window.__bootLog.push = function(msg){
+    console.log('%c[Boot] ' + msg, 'color:#ffb800');
+    Array.prototype.push.call(this, msg);
+  };
+
+  // Global uncaught error handler — anything that fails will show here
+  window.addEventListener('error', function(e){
+    console.error('[Boot] ❌ uncaught error:', e.message, '\n  from:', e.filename, 'line', e.lineno);
+  }, true);
+
+  // Script load watchdog — check after 4s whether THREE + StadiumView exist
+  setTimeout(function(){
+    console.log('%c[Boot] — 4 second health check —', 'color:#e10600;font-weight:bold');
+    console.log('[Boot] THREE loaded?        ' + (typeof THREE !== 'undefined' ? '✅' : '❌ MISSING'));
+    console.log('[Boot] THREE.GLTFLoader?    ' + (typeof THREE !== 'undefined' && THREE.GLTFLoader ? '✅' : '❌ MISSING'));
+    console.log('[Boot] THREE.DRACOLoader?   ' + (typeof THREE !== 'undefined' && THREE.DRACOLoader ? '✅' : '❌ MISSING'));
+    console.log('[Boot] window.StadiumView?  ' + (window.StadiumView ? '✅' : '❌ MISSING'));
+    console.log('[Boot] window.StadiumAnim?  ' + (window.StadiumAnim ? '✅' : '❌ MISSING'));
+    console.log('[Boot] scripts loaded:      ' + window.__bootLog.join(' → '));
+  }, 4000);
+})();
 </script>
+
+<!-- Load three.js with explicit onload/onerror hooks -->
+<script
+  src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"
+  onload="window.__bootLog.push('three.min.js ✔');"
+  onerror="console.error('[Boot] ❌ three.min.js FAILED TO LOAD');"
+></script>
+
+<script
+  src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"
+  onload="window.__bootLog.push('GLTFLoader.js ✔');"
+  onerror="console.error('[Boot] ❌ GLTFLoader.js FAILED TO LOAD');"
+></script>
+
+<script
+  src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/DRACOLoader.js"
+  onload="window.__bootLog.push('DRACOLoader.js ✔');"
+  onerror="console.error('[Boot] ❌ DRACOLoader.js FAILED TO LOAD');"
+></script>
+
+<!-- App scripts -->
+<script
+  src="stadium.js"
+  onload="window.__bootLog.push('stadium.js ✔');"
+  onerror="console.error('[Boot] ❌ stadium.js FAILED — check it exists at /stadium.js');"
+></script>
+
+<script
+  src="controls.js"
+  onload="window.__bootLog.push('controls.js ✔');"
+  onerror="console.error('[Boot] ❌ controls.js FAILED');"
+></script>
+
+<script
+  src="anim.js"
+  onload="window.__bootLog.push('anim.js ✔');"
+  onerror="console.error('[Boot] ❌ anim.js FAILED — rename animation.js to anim.js on GitHub');"
+></script>
 
 </body>
 </html>
