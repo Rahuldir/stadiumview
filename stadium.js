@@ -1,6 +1,6 @@
 /* ══════════════════════════════════════════════════════════════
-   StadiumView — stadium + equipment (2 bats) + 15 cricket roles
-   With DRACO support for compressed GLB files
+   StadiumView — stadium (has own ground+pitch) + equipment + players
+   Simplified lighting: no shadows, all ambient
    ══════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
@@ -10,19 +10,14 @@
   const EQUIPMENT_FILE = 'models/equipment.glb';
 
   const PLAYER_FILES = [
-    'models/p1.glb',
-    'models/p2.glb',
-    'models/p3.glb',
-    'models/p4.glb',
-    'models/p5.glb',
-    'models/p6.glb',
-    'models/p7.glb'
+    'models/p1.glb','models/p2.glb','models/p3.glb',
+    'models/p4.glb','models/p5.glb','models/p6.glb','models/p7.glb'
   ];
 
-  // ─── SIZES (metres; 0 = keep native) ─────────────────────────
-  const STADIUM_SIZE   = 200;    // 200m-wide ground
-  const EQUIPMENT_SIZE = 3.5;    // bat + stumps group
-  const PLAYER_SIZE    = 1.8;    // human height
+  // ─── SIZES (metres) ──────────────────────────────────────────
+  const STADIUM_SIZE   = 200;
+  const EQUIPMENT_SIZE = 4.0;
+  const PLAYER_SIZE    = 1.8;
 
   // ─── ROTATIONS ───────────────────────────────────────────────
   const ROT_STADIUM   = { x: 0, y: 0, z: 0 };
@@ -30,18 +25,18 @@
   const ROT_PLAYER    = { x: 0, y: 0, z: 0 };
 
   // ─── EQUIPMENT POSITIONS ─────────────────────────────────────
-  const EQUIPMENT_POS_STRIKER    = { x: 0.35, y: 0, z: 9 };
-  const EQUIPMENT_POS_NONSTRIKER = { x: -1.2, y: 0, z: -9 };
+  const EQUIPMENT_POS_STRIKER    = { x: 0, y: 0, z: 10 };
+  const EQUIPMENT_POS_NONSTRIKER = { x: 0, y: 0, z: -10 };
 
   // ─── 15 CRICKET POSITIONS ────────────────────────────────────
   const FIELD_POSITIONS = [
     { role: 'Striker',            x: 0.35,  y: 0, z: 9,     rotY: Math.PI },
     { role: 'Non-Striker',        x: -1.2,  y: 0, z: -9,    rotY: 0 },
-    { role: 'Umpire (Bowl End)',  x: -0.7,  y: 0, z: -10.5, rotY: 0 },
+    { role: 'Umpire (Bowl End)',  x: -0.7,  y: 0, z: -11,   rotY: 0 },
     { role: 'Umpire (Sq Leg)',    x: -14,   y: 0, z: 0,     rotY: Math.PI * 0.5 },
-    { role: 'Bowler',             x: 0,     y: 0, z: -14,   rotY: 0 },
-    { role: 'Keeper',             x: 0,     y: 0, z: 12,    rotY: Math.PI },
-    { role: 'Slip',               x: 3,     y: 0, z: 13.5,  rotY: Math.PI },
+    { role: 'Bowler',             x: 0,     y: 0, z: -15,   rotY: 0 },
+    { role: 'Keeper',             x: 0,     y: 0, z: 13,    rotY: Math.PI },
+    { role: 'Slip',               x: 3,     y: 0, z: 14.5,  rotY: Math.PI },
     { role: 'Point',              x: 15,    y: 0, z: 6,     rotY: Math.PI * 0.75 },
     { role: 'Cover',              x: 18,    y: 0, z: -3,    rotY: Math.PI * 0.55 },
     { role: 'Mid-Off',            x: 10,    y: 0, z: -10,   rotY: 0 },
@@ -55,39 +50,34 @@
   // ─── SCENE ───────────────────────────────────────────────────
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x87b8e0);
-  scene.fog = new THREE.Fog(0x87b8e0, 500, 1800);
+  scene.fog = new THREE.Fog(0x87b8e0, 500, 2000);
 
   const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 5000);
 
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(innerWidth, innerHeight);
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.enabled = false;                 // ← shadows OFF
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.15;
+  renderer.toneMappingExposure = 1.3;                 // ← brighter
   document.body.appendChild(renderer.domElement);
 
-  // ─── LIGHTS ──────────────────────────────────────────────────
-  scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+  // ─── LIGHTS (simple + bright, no shadows) ────────────────────
+  scene.add(new THREE.AmbientLight(0xffffff, 1.4));
 
-  const hemi = new THREE.HemisphereLight(0xffffff, 0x4a7a4a, 1.0);
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x88aa88, 1.4);
   scene.add(hemi);
 
-  const sun = new THREE.DirectionalLight(0xffffff, 1.2);
-  sun.position.set(150, 220, 150);
-  sun.castShadow = true;
-  sun.shadow.mapSize.width = 2048;
-  sun.shadow.mapSize.height = 2048;
-  sun.shadow.camera.left = -300;
-  sun.shadow.camera.right = 300;
-  sun.shadow.camera.top = 300;
-  sun.shadow.camera.bottom = -300;
-  sun.shadow.camera.near = 1;
-  sun.shadow.camera.far = 1200;
-  sun.shadow.bias = -0.0008;
-  sun.shadow.normalBias = 0.02;
+  const sun = new THREE.DirectionalLight(0xffffff, 1.0);
+  sun.position.set(80, 400, 80);
+  sun.castShadow = false;                              // ← no shadows
   scene.add(sun);
+
+  // Extra fill from opposite side to avoid dark patches
+  const fill = new THREE.DirectionalLight(0xffffff, 0.6);
+  fill.position.set(-80, 300, -80);
+  fill.castShadow = false;
+  scene.add(fill);
 
   // ─── LOADER + DRACO ──────────────────────────────────────────
   const loader = new THREE.GLTFLoader();
@@ -101,8 +91,6 @@
     } catch(e){
       console.warn('[Loader] DRACO setup failed:', e);
     }
-  } else {
-    console.warn('[Loader] THREE.DRACOLoader not found — compressed GLBs will fail');
   }
 
   const loadStatus = {};
@@ -175,13 +163,19 @@
   }
 
   function enableShadows(obj, cast){
+    // Shadows disabled — we just ensure materials are visible
     obj.traverse(function(c){
       if (c.isMesh){
-        c.castShadow = cast !== false;
-        c.receiveShadow = true;
         if (c.material){
           const mats = Array.isArray(c.material) ? c.material : [c.material];
-          mats.forEach(function(m){ m.side = THREE.FrontSide; });
+          mats.forEach(function(m){
+            // Force materials to respond to light properly
+            if (m.emissive) m.emissive.setHex(0x000000);
+            if (typeof m.roughness === 'number') m.roughness = 0.85;
+            if (typeof m.metalness === 'number') m.metalness = 0.0;
+            m.side = THREE.DoubleSide;
+            m.needsUpdate = true;
+          });
         }
       }
     });
@@ -196,7 +190,7 @@
   }
 
   // ─── PLACE STADIUM ───────────────────────────────────────────
-  let stadiumRadius = 200;
+  let stadiumRadius = 100;
 
   function placeStadium(model){
     if (!model) return;
@@ -210,7 +204,7 @@
     const sz = new THREE.Vector3();
     box.getSize(sz);
     stadiumRadius = Math.max(sz.x, sz.z) * 0.6;
-    console.log('[Stadium] size after scaling: ' + sz.x.toFixed(1) + ' × ' + sz.y.toFixed(1) + ' × ' + sz.z.toFixed(1));
+    console.log('[Stadium] size: ' + sz.x.toFixed(1) + ' × ' + sz.y.toFixed(1) + ' × ' + sz.z.toFixed(1));
   }
 
   // ─── PLACE EQUIPMENT ─────────────────────────────────────────
@@ -238,20 +232,16 @@
     );
     scene.add(clone);
 
-    console.log('[Equipment] placed at both ends (target ' + EQUIPMENT_SIZE + 'm)');
+    console.log('[Equipment] placed at both ends');
   }
 
   // ─── PLACE PLAYERS ───────────────────────────────────────────
   function placePlayers(models){
     const valid = models.filter(function(m){ return m; });
-    if (valid.length === 0){
-      console.warn('[Players] No player models loaded — DRACO missing or files not found');
-      return;
-    }
+    if (valid.length === 0){ console.warn('[Players] none loaded'); return; }
 
     shuffle(valid);
-    console.log('[Players] Loaded ' + valid.length + ' models, need ' + FIELD_POSITIONS.length + ' positions');
-    console.log('[Players] Shuffled: ' + valid.map(function(m){ return m.name || '?'; }).join(', '));
+    console.log('[Players] Loaded ' + valid.length + ' models, need ' + FIELD_POSITIONS.length);
 
     for (let i = 0; i < FIELD_POSITIONS.length; i++){
       const src = valid[i % valid.length];
@@ -277,8 +267,8 @@
       model.position.y = pos.y + (model.position.y || 0);
 
       scene.add(model);
-      console.log('[Players] ' + pos.role + ' ← ' + srcName);
     }
+    console.log('[Players] all 15 placed');
   }
 
   function setLoaderProgress(loaded, total){
