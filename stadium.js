@@ -1,94 +1,106 @@
 /* ══════════════════════════════════════════════════════════════
-   StadiumView — 3D scene + model loading
-   (pitch removed — stadium.glb already contains it)
+   StadiumView — stadium + equipment (2 bats) + 15 cricket roles
+   7 player models recycled to fill 15 positions
    ══════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
 
-  // ─── CONFIG (edit these to match your files) ─────────────────
-  const MODEL_FILES = {
-    stadium: 'models/stadium.glb',
-    ball:    'models/ball.glb',
-    bat:     'models/bat.glb',
-    player:  'models/player.glb'
-  };
+  // ─── FILE PATHS ──────────────────────────────────────────────
+  const STADIUM_FILE   = 'models/stadium.glb';
+  const EQUIPMENT_FILE = 'models/equipment.glb';   // bat + ball + stumps
 
-  // Target sizes in metres (0 = keep native size)
-  const TARGET_SCALE = {
-    stadium: 0,
-    ball:    0.072,
-    bat:     0.965,
-    player:  1.8
-  };
+  // Only 7 models uploaded (p1..p7). We'll recycle them.
+  const PLAYER_FILES = [
+    'models/p1.glb',
+    'models/p2.glb',
+    'models/p3.glb',
+    'models/p4.glb',
+    'models/p5.glb',
+    'models/p6.glb',
+    'models/p7.glb'
+  ];
 
-  // Manual rotations (radians) — fix orientation issues here
-  const MANUAL_ROTATION = {
-    stadium: { x: 0, y: 0, z: 0 },
-    ball:    { x: 0, y: 0, z: 0 },
-    bat:     { x: 0, y: 0, z: 0 },
-    player:  { x: 0, y: 0, z: 0 }
-  };
+  // ─── SIZES (metres; 0 = native) ──────────────────────────────
+  const STADIUM_SIZE   = 0;
+  const EQUIPMENT_SIZE = 0;
+  const PLAYER_SIZE    = 1.8;
 
-  // Manual positions (metres) — where each model sits in the world
-  const POSITION = {
-    stadium: { x: 0,    y: 0,    z: 0 },
-    ball:    { x: 0,    y: 0.10, z: 6 },
-    bat:     { x: 1.2,  y: 0,    z: 9 },
-    player:  { x: 0.35, y: 0,    z: 9 }
-  };
+  // ─── ROTATIONS ───────────────────────────────────────────────
+  const ROT_STADIUM   = { x: 0, y: 0, z: 0 };
+  const ROT_EQUIPMENT = { x: 0, y: 0, z: 0 };
+  const ROT_PLAYER    = { x: 0, y: 0, z: 0 };
+
+  // ─── EQUIPMENT POSITIONS (both ends of the pitch) ────────────
+  const EQUIPMENT_POS_STRIKER    = { x: 0.35, y: 0, z: 9 };
+  const EQUIPMENT_POS_NONSTRIKER = { x: -1.2, y: 0, z: -9 };
+
+  /* ─── 15 CRICKET POSITIONS ────────────────────────────────────
+     x  = off-side (+) / leg-side (−)
+     z  = batting end (+) / bowling end (−)
+     rotY = direction the player faces (radians)
+     Model faces +Z when rotY = 0                              */
+  const FIELD_POSITIONS = [
+
+    // ══ BATTING SIDE (2) ══
+    { role: 'Striker',            x: 0.35,  y: 0, z: 9,     rotY: Math.PI },
+    { role: 'Non-Striker',        x: -1.2,  y: 0, z: -9,    rotY: 0 },
+
+    // ══ UMPIRES (2) ══
+    { role: 'Umpire (Bowl End)',  x: -0.7,  y: 0, z: -10.5, rotY: 0 },
+    { role: 'Umpire (Sq Leg)',    x: -14,   y: 0, z: 0,     rotY: Math.PI * 0.5 },
+
+    // ══ BOWLING SIDE (11) ══
+    { role: 'Bowler',             x: 0,     y: 0, z: -14,   rotY: 0 },
+    { role: 'Keeper',             x: 0,     y: 0, z: 12,    rotY: Math.PI },
+    { role: 'Slip',               x: 3,     y: 0, z: 13.5,  rotY: Math.PI },
+    { role: 'Point',              x: 15,    y: 0, z: 6,     rotY: Math.PI * 0.75 },
+    { role: 'Cover',              x: 18,    y: 0, z: -3,    rotY: Math.PI * 0.55 },
+    { role: 'Mid-Off',            x: 10,    y: 0, z: -10,   rotY: 0 },
+    { role: 'Mid-On',             x: -10,   y: 0, z: -10,   rotY: 0 },
+    { role: 'Mid-Wicket',         x: -18,   y: 0, z: -3,    rotY: Math.PI * 1.45 },
+    { role: 'Square Leg',         x: -16,   y: 0, z: 6,     rotY: Math.PI * 1.25 },
+    { role: 'Fine Leg',           x: -22,   y: 0, z: 12,    rotY: Math.PI * 1.2 },
+    { role: 'Third Man',          x: 12,    y: 0, z: 14,    rotY: Math.PI }
+  ];
 
   // ─── SCENE ───────────────────────────────────────────────────
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x050a12);
-  scene.fog = new THREE.Fog(0x050a12, 300, 1200);
+  scene.background = new THREE.Color(0x87b8e0);
+  scene.fog = new THREE.Fog(0x87b8e0, 500, 1800);
 
-  const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.05, 3000);
+  const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 5000);
 
-  const renderer = new THREE.WebGLRenderer({
-    antialias: true,
-    powerPreference: 'high-performance'
-  });
+  const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(innerWidth, innerHeight);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.05;
+  renderer.toneMappingExposure = 1.15;
   document.body.appendChild(renderer.domElement);
 
   // ─── LIGHTS ──────────────────────────────────────────────────
-  const hemi = new THREE.HemisphereLight(0xffffff, 0x1a4a2a, 0.85);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x4a7a4a, 1.0);
   scene.add(hemi);
 
-  const sun = new THREE.DirectionalLight(0xffffff, 1.5);
-  sun.position.set(80, 150, 100);
+  const sun = new THREE.DirectionalLight(0xffffff, 1.2);
+  sun.position.set(150, 220, 150);
   sun.castShadow = true;
   sun.shadow.mapSize.width = 2048;
   sun.shadow.mapSize.height = 2048;
-  sun.shadow.camera.left = -200;
-  sun.shadow.camera.right = 200;
-  sun.shadow.camera.top = 200;
-  sun.shadow.camera.bottom = -200;
+  sun.shadow.camera.left = -300;
+  sun.shadow.camera.right = 300;
+  sun.shadow.camera.top = 300;
+  sun.shadow.camera.bottom = -300;
   sun.shadow.camera.near = 1;
-  sun.shadow.camera.far = 800;
-  sun.shadow.bias = -0.0005;
+  sun.shadow.camera.far = 1200;
+  sun.shadow.bias = -0.0008;
+  sun.shadow.normalBias = 0.02;
   scene.add(sun);
-
-  scene.add(new THREE.AmbientLight(0xffffff, 0.3));
-
-  // ─── GROUND (fallback if stadium has no ground) ──────────────
-  const ground = new THREE.Mesh(
-    new THREE.CircleGeometry(500, 64),
-    new THREE.MeshStandardMaterial({ color: 0x0a1a10, roughness: 1 })
-  );
-  ground.rotation.x = -Math.PI / 2;
-  ground.position.y = -0.01;
-  ground.receiveShadow = true;
-  scene.add(ground);
 
   // ─── LOADER ──────────────────────────────────────────────────
   const loader = new THREE.GLTFLoader();
-  const loadedModels = {};
   const loadStatus = {};
 
   function loadOne(key, url){
@@ -100,7 +112,7 @@
         url,
         function(gltf){
           const model = gltf.scene || gltf.scenes[0];
-          loadedModels[key] = model;
+          if (model && !model.name) model.name = key;
           loadStatus[key] = { status: 'loaded' };
           updateList();
           console.log('[StadiumView] ✅ ' + key);
@@ -108,8 +120,7 @@
         },
         function(p){
           if (p.total){
-            const pct = Math.round((p.loaded / p.total) * 100);
-            loadStatus[key] = { status: 'loading', pct: pct };
+            loadStatus[key] = { status: 'loading', pct: Math.round((p.loaded / p.total) * 100) };
             updateList();
           }
         },
@@ -126,17 +137,18 @@
   function updateList(){
     const el = document.getElementById('modelList');
     if (!el) return;
-    el.innerHTML = Object.keys(MODEL_FILES).map(function(key){
-      const s = loadStatus[key] || { status: 'pending' };
-      let icon = '⏳', cls = 'wait', txt = 'waiting';
-      if (s.status === 'loaded')       { icon = '✅'; cls = 'ok';   txt = 'ready'; }
-      else if (s.status === 'failed')  { icon = '❌'; cls = 'fail'; txt = 'missing'; }
-      else if (s.status === 'loading') { icon = '📥'; cls = 'wait'; txt = s.pct + '%'; }
-      return '<div class="row ' + cls + '">' + icon + ' ' + key + ' · ' + txt + '</div>';
+    const keys = Object.keys(loadStatus).sort();
+    el.innerHTML = keys.map(function(key){
+      const s = loadStatus[key];
+      let icon = '⏳', cls = 'wait';
+      if (s.status === 'loaded')       { icon = '✅'; cls = 'ok'; }
+      else if (s.status === 'failed')  { icon = '❌'; cls = 'fail'; }
+      else if (s.status === 'loading') { icon = '📥'; cls = 'wait'; }
+      return '<div class="row ' + cls + '">' + icon + ' ' + key + '</div>';
     }).join('');
   }
 
-  // ─── AUTO-FIT (scale + centre, bottom at y=0) ────────────────
+  // ─── HELPERS ─────────────────────────────────────────────────
   function autoFit(model, targetSize){
     if (!targetSize || targetSize <= 0) return;
     model.updateMatrixWorld(true);
@@ -151,18 +163,17 @@
 
     model.updateMatrixWorld(true);
     const nb = new THREE.Box3().setFromObject(model);
-    const centre = new THREE.Vector3();
-    nb.getCenter(centre);
-    model.position.x -= centre.x;
-    model.position.z -= centre.z;
+    const c = new THREE.Vector3();
+    nb.getCenter(c);
+    model.position.x -= c.x;
+    model.position.z -= c.z;
     model.position.y -= nb.min.y;
   }
 
-  // ─── ENABLE SHADOWS ──────────────────────────────────────────
-  function enableShadows(obj){
+  function enableShadows(obj, cast){
     obj.traverse(function(c){
       if (c.isMesh){
-        c.castShadow = true;
+        c.castShadow = cast !== false;
         c.receiveShadow = true;
         if (c.material){
           const mats = Array.isArray(c.material) ? c.material : [c.material];
@@ -172,26 +183,118 @@
     });
   }
 
-  // ─── PLACE ───────────────────────────────────────────────────
-  function placeOne(key, model){
-    if (!model) return;
-    const r = MANUAL_ROTATION[key];
-    if (r){ model.rotation.set(r.x || 0, r.y || 0, r.z || 0); }
-
-    autoFit(model, TARGET_SCALE[key]);
-    enableShadows(model);
-
-    const p = POSITION[key];
-    if (p){
-      model.position.x = p.x;
-      model.position.y = p.y + (model.position.y || 0);
-      model.position.z = p.z;
+  function shuffle(arr){
+    for (let i = arr.length - 1; i > 0; i--){
+      const j = Math.floor(Math.random() * (i + 1));
+      const t = arr[i]; arr[i] = arr[j]; arr[j] = t;
     }
-
-    scene.add(model);
+    return arr;
   }
 
-  // ─── LOADER OVERLAY ──────────────────────────────────────────
+  // ─── PLACE STADIUM ───────────────────────────────────────────
+  let stadiumRadius = 150;
+
+  function placeStadium(model){
+    if (!model) return;
+    model.rotation.set(ROT_STADIUM.x, ROT_STADIUM.y, ROT_STADIUM.z);
+    autoFit(model, STADIUM_SIZE);
+    enableShadows(model, false);
+    model.position.set(0, 0, 0);
+    scene.add(model);
+
+    const box = new THREE.Box3().setFromObject(model);
+    const sz = new THREE.Vector3();
+    box.getSize(sz);
+    stadiumRadius = Math.max(sz.x, sz.z) * 0.6;
+    console.log('[Stadium] size: ' + sz.x.toFixed(1) + ' × ' + sz.y.toFixed(1) + ' × ' + sz.z.toFixed(1));
+  }
+
+  // ─── PLACE EQUIPMENT (2 bats, 1 ball, stumps at both ends) ───
+  function placeEquipment(model){
+    if (!model) return;
+
+    // Original at STRIKER'S end
+    model.rotation.set(ROT_EQUIPMENT.x, ROT_EQUIPMENT.y, ROT_EQUIPMENT.z);
+    autoFit(model, EQUIPMENT_SIZE);
+    enableShadows(model, true);
+    model.position.set(
+      EQUIPMENT_POS_STRIKER.x,
+      EQUIPMENT_POS_STRIKER.y,
+      EQUIPMENT_POS_STRIKER.z
+    );
+    scene.add(model);
+
+    // Clone at NON-STRIKER'S end, hide the ball
+    const clone = model.clone(true);
+    let ballHidden = false;
+    const meshNames = [];
+    clone.traverse(function(child){
+      if (child.isMesh){
+        meshNames.push(child.name || '(unnamed)');
+        if (child.name && /ball/i.test(child.name)){
+          child.visible = false;
+          ballHidden = true;
+        }
+      }
+    });
+
+    clone.rotation.x = ROT_EQUIPMENT.x || 0;
+    clone.rotation.y = (ROT_EQUIPMENT.y || 0) + Math.PI;
+    clone.rotation.z = ROT_EQUIPMENT.z || 0;
+
+    clone.position.set(
+      EQUIPMENT_POS_NONSTRIKER.x,
+      EQUIPMENT_POS_NONSTRIKER.y,
+      EQUIPMENT_POS_NONSTRIKER.z
+    );
+    scene.add(clone);
+
+    console.log('[Equipment] Meshes: ' + meshNames.join(', '));
+    console.log('[Equipment] Ball hidden in clone: ' + (ballHidden ? 'YES ✅' : 'NO'));
+  }
+
+  /* ─── PLACE PLAYERS ───────────────────────────────────────────
+     7 models recycled across all 15 positions.
+     Each clone gets a shuffled model from the pool. */
+  function placePlayers(models){
+    const valid = models.filter(function(m){ return m; });
+    if (valid.length === 0){ console.warn('[Players] none loaded'); return; }
+
+    shuffle(valid);
+    console.log('[Players] Loaded ' + valid.length + ' models, need ' + FIELD_POSITIONS.length + ' positions');
+    console.log('[Players] Shuffled: ' + valid.map(function(m){ return m.name || '?'; }).join(', '));
+
+    for (let i = 0; i < FIELD_POSITIONS.length; i++){
+      const src = valid[i % valid.length];
+      const pos = FIELD_POSITIONS[i];
+
+      const model = src.clone(true);
+      const srcName = src.name || ('p' + ((i % valid.length) + 1));
+      model.name = srcName + '_' + pos.role.replace(/[^a-z0-9]/gi, '');
+
+      // Reset transform for a clean auto-fit
+      model.position.set(0, 0, 0);
+      model.rotation.set(0, 0, 0);
+      model.scale.set(1, 1, 1);
+
+      autoFit(model, PLAYER_SIZE);
+      enableShadows(model, true);
+
+      // Apply rotation for this role
+      model.rotation.x = ROT_PLAYER.x || 0;
+      model.rotation.y = pos.rotY || 0;
+      model.rotation.z = ROT_PLAYER.z || 0;
+
+      // Position on the field
+      model.position.x = pos.x;
+      model.position.z = pos.z;
+      model.position.y = pos.y + (model.position.y || 0);
+
+      scene.add(model);
+      console.log('[Players] ' + pos.role + ' ← ' + srcName);
+    }
+  }
+
   function setLoaderProgress(loaded, total){
     const sub = document.getElementById('loaderSub');
     const txt = document.getElementById('loaderText');
@@ -201,51 +304,66 @@
 
   // ─── BOOT ────────────────────────────────────────────────────
   async function boot(){
-    const keys = Object.keys(MODEL_FILES);
-    let loaded = 0;
+    const tasks = [
+      { key: 'stadium',   url: STADIUM_FILE },
+      { key: 'equipment', url: EQUIPMENT_FILE }
+    ].concat(PLAYER_FILES.map(function(url, i){
+      return { key: 'p' + (i + 1), url: url };
+    }));
 
-    const results = await Promise.all(
-      keys.map(function(key){
-        return loadOne(key, MODEL_FILES[key]).then(function(m){
-          if (m) loaded++;
-          setLoaderProgress(loaded, keys.length);
-          return { key: key, model: m };
-        });
-      })
-    );
+    let done = 0;
+    const total = tasks.length;
 
-    results.forEach(function(r){ if (r.model) placeOne(r.key, r.model); });
+    const results = await Promise.all(tasks.map(function(t){
+      return loadOne(t.key, t.url).then(function(m){
+        done++;
+        setLoaderProgress(done, total);
+        return { key: t.key, model: m };
+      });
+    }));
+
+    const pick = function(key){
+      const r = results.find(function(x){ return x.key === key; });
+      return r ? r.model : null;
+    };
+
+    placeStadium(pick('stadium'));
+    placeEquipment(pick('equipment'));
+
+    const playerModels = PLAYER_FILES.map(function(_, i){
+      return pick('p' + (i + 1));
+    }).filter(function(m){ return m; });
+    playerModels.forEach(function(m, i){ if (m && !m.name) m.name = 'p' + (i + 1); });
+
+    placePlayers(playerModels);
 
     setTimeout(function(){
       const el = document.getElementById('loader');
       if (el) el.classList.add('hide');
     }, 400);
 
-    // Expose for controls.js
     window.StadiumView = {
       scene: scene,
       camera: camera,
       renderer: renderer,
       sun: sun,
-      hemi: hemi
+      hemi: hemi,
+      stadiumRadius: stadiumRadius
     };
   }
 
-  // ─── RESIZE ──────────────────────────────────────────────────
   window.addEventListener('resize', function(){
     camera.aspect = innerWidth / innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(innerWidth, innerHeight);
   });
 
-  // ─── RENDER LOOP ─────────────────────────────────────────────
   const fpsEl = document.getElementById('fps');
   let frames = 0, lastFps = performance.now();
 
   function animate(){
     requestAnimationFrame(animate);
     renderer.render(scene, camera);
-
     frames++;
     const now = performance.now();
     if (now - lastFps >= 1000){
