@@ -1,12 +1,14 @@
 /* ══════════════════════════════════════════════════════════════
-   StadiumView — standalone scene builder (no external deps)
+   StadiumView — scene builder (standalone, mobile-aware)
+   • Flood lights: intensity 1.8 (was 5.0), narrower beam
+   • fieldY from multi-sample raycast
+   • FrontSide culling OFF (keeps pitch visible)
    ══════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
 
-  console.log('%c[stadium.js] standalone v4.1', 'color:#00e676;font-weight:bold');
+  console.log('%c[stadium.js] IIFE started — standalone v4.2', 'color:#00e676;font-weight:bold');
 
-  // ─── Inlined mobile detection ───────────────────────────
   const ua = navigator.userAgent || '';
   const IS_MOBILE =
     /Android|iPhone|iPad|iPod|Mobile|Silk|Kindle|BlackBerry|Opera Mini/i.test(ua)
@@ -51,7 +53,6 @@
   scene.fog = null;
 
   const camera = new THREE.PerspectiveCamera(55, innerWidth/innerHeight, 0.3, 2000);
-
   const renderer = new THREE.WebGLRenderer({
     antialias: !IS_MOBILE,
     powerPreference: IS_MOBILE ? 'default' : 'high-performance',
@@ -227,9 +228,11 @@
     model.position.set(0,0,0);
     scene.add(model);
 
+    // Raycast first — before FrontSide
     fieldY = findFieldLevel(model);
     console.log('[Raycast] grass y=' + fieldY.toFixed(2));
 
+    // Shadows off, keep materials intact so pitch stays visible
     model.traverse(function(c){
       if (c.isMesh){ c.castShadow = false; c.receiveShadow = false; }
     });
@@ -240,7 +243,9 @@
     console.log('[Stadium] size ' + sz.x.toFixed(1) + '×' + sz.y.toFixed(1) + '×' + sz.z.toFixed(1));
   }
 
-  // ─── Flood lights ─────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════
+  //  FLOOD LIGHTS — softer intensities for realistic night
+  // ═══════════════════════════════════════════════════════════
   const floodLights = [];
 
   function attachFloodlight(x, z){
@@ -248,10 +253,19 @@
     let spot = null;
 
     if (!IS_MOBILE){
-      spot = new THREE.SpotLight(0xffe9c0, 0, 500, Math.PI*0.28, 0.6, 0);
+      // Narrow beam + soft penumbra = realistic stadium throw
+      spot = new THREE.SpotLight(
+        0xffe9c0,
+        0,                 // off by default, setFloodlights() toggles
+        400,               // range
+        Math.PI * 0.18,    // ~32° beam (was 50° — much tighter)
+        0.65,              // soft penumbra
+        0.0                // no distance falloff
+      );
       spot.position.set(x, yWorld, z);
       spot.target.position.set(0, fieldY, 0);
-      scene.add(spot); scene.add(spot.target);
+      scene.add(spot);
+      scene.add(spot.target);
     }
 
     const len = Math.hypot(x, z);
@@ -268,7 +282,7 @@
 
     let cheapLight = null;
     if (IS_MOBILE){
-      cheapLight = new THREE.PointLight(0xffe9c0, 0, 220, 1.2);
+      cheapLight = new THREE.PointLight(0xffe9c0, 0, 150, 1.5);
       cheapLight.position.set(x, yWorld - 2, z);
       scene.add(cheapLight);
     }
@@ -276,8 +290,9 @@
     const ref = {
       spot, panel, panelMat, cheapLight,
       setGlow: function(v){
-        if (spot)       spot.intensity = v * 5.0;
-        if (cheapLight) cheapLight.intensity = v * 0.9;
+        // Much gentler than before — 1.8 instead of 5.0
+        if (spot)       spot.intensity = v * 1.8;
+        if (cheapLight) cheapLight.intensity = v * 0.35;
         panelMat.opacity = v;
         panelMat.color.setRGB(0.15 + v*0.85, 0.15 + v*0.85, 0.10 + v*0.90);
       }
@@ -289,10 +304,13 @@
   function buildFloodlights(){
     const R = TOWER_XZ;
     [[R,R],[-R,R],[R,-R],[-R,-R]].forEach(function(p){ attachFloodlight(p[0], p[1]); });
-    console.log('[Floodlights] 4 towers · ' + (IS_MOBILE ? 'point-light fallback' : 'spotlights'));
+    console.log('[Floodlights] 4 towers · ' + (IS_MOBILE ? 'point-light fallback' : 'spotlights') +
+                ' · intensity=1.8');
   }
 
-  // ─── Ad boards ────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════
+  //  AD BOARDS
+  // ═══════════════════════════════════════════════════════════
   function buildAdBoards(){
     const count = IS_MOBILE ? 10 : 24;
     const colors = [0x0a0e1a, 0x7f1d1d, 0x0a0e1a, 0x111111, 0x1e3a8a, 0x0a0e1a];
