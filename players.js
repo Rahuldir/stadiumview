@@ -1,14 +1,13 @@
 /* ══════════════════════════════════════════════════════════════
-   StadiumView — Kinematics v14.0 (The Fix: Scales, Sunken Legs & CSK/MI Jerseys)
-   • FIXED: Bat detached from bone hierarchy to prevent scale-squishing.
-   • FIXED: Fielders rotated 180° via absolute lookAt to fix backward facing.
-   • FIXED: Sunken fielder bug resolved by zeroing Y-offsets for non-keepers.
-   • FIXED: Removed neon glow; applied proper CSK Yellow and MI Blue.
+   StadiumView — Kinematics v15.0 (The Bone-Level Solver)
+   • FIXED: Moonwalking. Flipped the internal Hips bone instead of the Group.
+   • FIXED: Sunken Keeper. Group Y-axis is no longer modified; crouches are purely skeletal.
+   • LIVERY: Mumbai Blue/Gold for fielding, Red/Yellow for Batsmen preserved.
    ══════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
 
-  console.log('%c[players.js] IIFE started — kinematics v14.0 (Total Fix)', 'color:#00ff08;font-weight:bold');
+  console.log('%c[players.js] IIFE started — kinematics v15.0 (Bone Solver)', 'color:#ffea00;font-weight:bold');
 
   const IS_MOBILE_PLAYERS = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
   const BONE_EVERY = IS_MOBILE_PLAYERS ? 3 : 1;
@@ -197,28 +196,24 @@
   // ═════════════════════════════════════════════════════════════
   function applyJerseyColors(role, group) {
     group.traverse(c => {
-      if (c.userData && c.userData.isAccessory) return; // SKIP BATS AND BALLS
+      if (c.userData && c.userData.isAccessory) return; 
       
       if (c.isMesh && c.material) {
         const mats = Array.isArray(c.material) ? c.material : [c.material];
         const newMats = mats.map(m => {
-          // Attempt to skip skin/hair by checking standard map existence or naming
           if (m.map !== null || /skin|face|hair|head|eye/i.test(m.name) || /skin|face|hair|head/i.test(c.name)) {
             return m; 
           }
           let clone = m.clone();
-          clone.emissiveIntensity = 0; // KILLS THE NEON GLOW BUG
-          clone.emissive.setHex(0x000000); 
+          clone.emissiveIntensity = 0; 
+          if (clone.emissive) clone.emissive.setHex(0x000000); 
 
           if (role === 'Striker' || role === 'Non-Striker') {
-            // CSK YELLOW
-            if(clone.color) clone.color.setHex(0xF9CD05); 
+            if(clone.color) clone.color.setHex(0xF9CD05); // CSK YELLOW
           } else if (role.includes('Umpire')) {
-            // UMPIRE BLACK
-            if(clone.color) clone.color.setHex(0x222222);
+            if(clone.color) clone.color.setHex(0x222222); // UMPIRE BLACK
           } else {
-            // MUMBAI INDIANS BLUE
-            if(clone.color) clone.color.setHex(0x004BA0); 
+            if(clone.color) clone.color.setHex(0x004BA0); // MUMBAI BLUE
           }
           return clone;
         });
@@ -236,10 +231,16 @@
       group.position.set(stance.x, group.position.y, stance.z);
       group.rotation.y = stance.rotY;
     } else {
-      // AUTO-TARGETING (Forces fielders to look directly at the pitch)
+      // AUTO-TARGETING (Standard LookAt for movement engine compatibility)
       const target = new THREE.Vector3(0, group.position.y, 8.8);
       group.lookAt(target);
-      group.rotateY(Math.PI); // FLIP 180 DEGREE FIX FOR INVERTED MODELS
+      
+      // INTERNAL SKELETON FIX FOR BACKWARD MODELS (Fixes Moonwalking)
+      // Rotates the mesh visually without breaking the Group's forward math
+      if (skel.slots.hips) {
+        skel.slots.hips.rotateY(Math.PI);
+        skel.slots.hips.updateMatrixWorld(true);
+      }
     }
     group.updateMatrixWorld(true);
 
@@ -247,15 +248,13 @@
       role, group, skel, stance: stance || null,
       mode: 'idle', action: null, phase: 0, phaseSpeed: 1, loop: true,
       batObj: (accessoryRef && accessoryRef.bat) ? accessoryRef.bat : null,
-      ballObj: (accessoryRef && accessoryRef.ball) ? accessoryRef.ball : null,
-      home: { x: group.position.x, y: group.position.y, z: group.position.z, rotY: group.rotation.y }
+      ballObj: (accessoryRef && accessoryRef.ball) ? accessoryRef.ball : null
     };
     
-    // ISOLATE ACCESSORIES FROM BONE SCALING
     if (playerObj.batObj) {
       if (playerObj.batObj.parent) playerObj.batObj.parent.remove(playerObj.batObj);
       playerObj.batObj.userData.isAccessory = true;
-      playerObj.batObj.scale.set(1, 1, 1); // Reset skewed scales
+      playerObj.batObj.scale.set(1, 1, 1);
       window.StadiumView.scene.add(playerObj.batObj);
     }
     if (playerObj.ballObj) {
@@ -302,7 +301,6 @@
       sk.slots[slot].quaternion.copy(_qb);
     }
 
-    // STRICT WORLD-SPACE ACCESSORY LOCKING
     function lockAccessories(p) {
       if (p.batObj && p.skel.slots.rHand) {
          p.skel.slots.rHand.updateMatrixWorld(true);
@@ -310,7 +308,6 @@
          p.skel.slots.rHand.getWorldQuaternion(_worldRot);
          
          p.batObj.position.copy(_v1);
-         // Enforce a downward-pointing rotation relative to the hand's world rotation
          const gripFix = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI/2 + (p.stance ? p.stance.batTilt : 0.2), 0, 0));
          p.batObj.quaternion.copy(_worldRot).multiply(gripFix);
          
@@ -328,7 +325,7 @@
       BONE_SLOTS.forEach(slot => {
         if (p.skel.slots[slot] && p.skel.rest[slot]) p.skel.slots[slot].quaternion.copy(p.skel.rest[slot]);
       });
-      p.group.position.y = p.home.y;
+      // CRITICAL FIX: group.position.y is completely ignored to stop players sinking into the floor.
     }
 
     function torso(p, t){
@@ -337,7 +334,6 @@
         if (p.role === 'Striker') {
           dBend(sk, 'lThigh', -0.3); dBend(sk, 'lShin', 0.4);
           dBend(sk, 'rThigh', -0.3); dBend(sk, 'rShin', 0.4);
-          p.group.position.y = p.home.y - 0.15; 
           
           if(sk.slots.lUpperArm) pointBoneDown(sk.slots.lUpperArm, new THREE.Vector3(0.5, -0.5, 0.5).normalize());
           if(sk.slots.rUpperArm) pointBoneDown(sk.slots.rUpperArm, new THREE.Vector3(0.5, -0.5, 0.5).normalize());
@@ -345,12 +341,10 @@
         else if (p.role === 'Keeper') {
           dBend(sk, 'lThigh', -1.4); dBend(sk, 'lShin', 1.8); 
           dBend(sk, 'rThigh', -1.4); dBend(sk, 'rShin', 1.8); 
-          p.group.position.y = p.home.y - 0.65; 
           
           if(sk.slots.lUpperArm) pointBoneDown(sk.slots.lUpperArm, new THREE.Vector3(0, -0.5, 0.8).normalize());
           if(sk.slots.rUpperArm) pointBoneDown(sk.slots.rUpperArm, new THREE.Vector3(0, -0.5, 0.8).normalize());
         }
-        // NOTE: Standard fielders no longer have dBend applied so they won't sink into the grass
       } 
     }
 
@@ -368,7 +362,6 @@
         dBend(sk, 'lThigh', -0.8 * stride); 
         dBend(sk, 'lShin', 0.6 * stride);   
         dBend(sk, 'rThigh', 0.3 * stride);  
-        p.group.position.y = p.home.y - 0.25 * stride; 
       }
     }
 
@@ -444,6 +437,6 @@
     }
 
     window.PlayerControl = { players, play };
-    console.log('[PlayerControl] ✅ Ready — Fixes Deployed');
+    console.log('[PlayerControl] ✅ Ready — Bone Solver Applied');
   }
 })();
