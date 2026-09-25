@@ -1,345 +1,283 @@
 /* ══════════════════════════════════════════════════════════════
-   StadiumView — Realistic Broadcast Edition
+   StadiumView — camera controls + Auto Director + flood lights
+   All view targets are relative to fieldY (grass level).
    ══════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
 
-  const STADIUM_FILE = 'models/stadium.glb';
-  const PLAYER_FILES = [
-    'models/p1.glb','models/p2.glb','models/p3.glb',
-    'models/p4.glb','models/p5.glb','models/p6.glb','models/p7.glb'
-  ];
+  const wait = setInterval(function(){
+    if (!window.StadiumView) return;
+    clearInterval(wait);
+    init();
+  }, 50);
 
-  const STADIUM_SIZE       = 200;     
-  const PLAYER_HEIGHT      = 1.80;    
-  const BALL_DIAMETER      = 0.072;   
-  const STUMPS_HEIGHT      = 0.71;    
-  const BOUNDARY_RADIUS    = 38;      
+  function init(){
+    const SV = window.StadiumView;
+    const scene    = SV.scene;
+    const camera   = SV.camera;
+    const renderer = SV.renderer;
+    const sun      = SV.sun     || null;
+    const hemi     = SV.hemi    || null;
+    const ambient  = SV.ambient || null;
 
-  // Realistic fielding formation (spread out, facing the pitch)
-  const FIELD_POSITIONS = [
-    { role: 'Striker',            x: 0,     y: 0, z: 8.6,   rotY: Math.PI,        hasBat: true },
-    { role: 'Non-Striker',        x: -1.2,  y: 0, z: -8.6,  rotY: 0,              hasBat: true },
-    { role: 'Umpire (Bowl End)',  x: -1.0,  y: 0, z: -11.5, rotY: 0 },
-    { role: 'Umpire (Sq Leg)',    x: -14,   y: 0, z: 0,     rotY: Math.PI * 0.5 },
-    { role: 'Bowler',             x: 0.5,   y: 0, z: -24,   rotY: 0,              hasBall: true },
-    { role: 'Keeper',             x: 0,     y: 0, z: 14,    rotY: Math.PI },
-    { role: 'Slip',               x: 3,     y: 0, z: 14.5,  rotY: Math.PI },
-    { role: 'Point',              x: 18,    y: 0, z: 6,     rotY: Math.PI * 0.75 },
-    { role: 'Cover',              x: 22,    y: 0, z: -6,    rotY: Math.PI * 0.6 },
-    { role: 'Mid-Off',            x: 10,    y: 0, z: -18,   rotY: Math.PI * 0.2 },
-    { role: 'Mid-On',             x: -10,   y: 0, z: -18,   rotY: -Math.PI * 0.2 },
-    { role: 'Mid-Wicket',         x: -22,   y: 0, z: -4,    rotY: -Math.PI * 0.6 },
-    { role: 'Square Leg',         x: -18,   y: 0, z: 5,     rotY: -Math.PI * 0.75 },
-    { role: 'Fine Leg',           x: -15,   y: 0, z: 18,    rotY: -Math.PI * 0.9 },
-    { role: 'Third Man',          x: 15,    y: 0, z: 22,    rotY: Math.PI * 0.9 }
-  ];
+    // Ground reference — every camera target is relative to this
+    const F = SV.fieldY || 0;
 
-  const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x87b8e0);
-  scene.fog = null;
+    const target = new THREE.Vector3(0, F + 12, 0);
+    let theta  = Math.PI * 0.25;
+    let phi    = Math.PI * 0.30;
+    let radius = 380;
 
-  const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 5000);
-  const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.setSize(innerWidth, innerHeight);
-  renderer.shadowMap.enabled = false;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.0; 
-  document.body.appendChild(renderer.domElement);
-
-  // Default Day Lights
-  const ambient = new THREE.AmbientLight(0xffffff, 0.8);
-  scene.add(ambient);
-  const hemi = new THREE.HemisphereLight(0xffffff, 0x88aa88, 0.6);
-  scene.add(hemi);
-  const sun = new THREE.DirectionalLight(0xffffff, 1.5);
-  sun.position.set(80, 400, 80);
-  scene.add(sun);
-
-  // Boundary Placards (Advertising Boards)
-  function makePlacards(radius) {
-    const count = 45;
-    const geom = new THREE.BoxGeometry(4.5, 0.9, 0.1);
-    const matWhite = new THREE.MeshStandardMaterial({color: 0xffffff, roughness: 0.9});
-    const matDark = new THREE.MeshStandardMaterial({color: 0x111111, roughness: 0.9});
-    for(let i=0; i<count; i++) {
-      const angle = (i / count) * Math.PI * 2;
-      const mesh = new THREE.Mesh(geom, i%2 === 0 ? matWhite : matDark);
-      mesh.position.set(Math.cos(angle) * radius, fieldY + 0.45, Math.sin(angle) * radius);
-      mesh.rotation.y = -angle + Math.PI/2;
-      scene.add(mesh);
+    function updateCamera(){
+      const x = target.x + radius * Math.sin(phi) * Math.cos(theta);
+      const y = target.y + radius * Math.cos(phi);
+      const z = target.z + radius * Math.sin(phi) * Math.sin(theta);
+      camera.position.set(x, y, z);
+      camera.lookAt(target);
     }
-  }
+    updateCamera();
 
-  const loader = new THREE.GLTFLoader();
-  if (typeof THREE.DRACOLoader === 'function'){
-    try {
-      const draco = new THREE.DRACOLoader();
-      draco.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/draco/');
-      loader.setDRACOLoader(draco);
-    } catch(e){}
-  }
+    // ─── Mouse drag ──────────────────────────────────────────
+    let dragging = false, lastX = 0, lastY = 0;
+    renderer.domElement.addEventListener('pointerdown', function(e){
+      dragging = true; lastX = e.clientX; lastY = e.clientY;
+      if (autoDirector.active) stopAutoDirector();
+    });
+    renderer.domElement.addEventListener('pointermove', function(e){
+      if (!dragging) return;
+      theta -= (e.clientX - lastX) * 0.005;
+      phi   -= (e.clientY - lastY) * 0.005;
+      phi = Math.max(0.05, Math.min(Math.PI * 0.49, phi));
+      lastX = e.clientX; lastY = e.clientY;
+      updateCamera();
+    });
+    renderer.domElement.addEventListener('pointerup',    function(){ dragging = false; });
+    renderer.domElement.addEventListener('pointerleave', function(){ dragging = false; });
 
-  const loadStatus = {};
-  function loadOne(key, url){
-    loadStatus[key] = { status: 'pending' };
-    updateList();
-    return new Promise(function(resolve){
-      loader.load(url, function(gltf){
-        const model = gltf.scene || gltf.scenes[0];
-        if (model && !model.name) model.name = key;
-        loadStatus[key] = { status: 'loaded' };
-        updateList();
-        resolve(model);
-      }, function(p){
-        if (p.total){
-          loadStatus[key] = { status: 'loading', pct: Math.round((p.loaded / p.total) * 100) };
-          updateList();
+    // ─── Wheel ───────────────────────────────────────────────
+    renderer.domElement.addEventListener('wheel', function(e){
+      e.preventDefault();
+      if (autoDirector.active) stopAutoDirector();
+      radius = Math.max(2, Math.min(1500, radius + e.deltaY * 0.5));
+      updateCamera();
+    }, { passive: false });
+
+    // ─── Pinch ───────────────────────────────────────────────
+    let lastPinch = 0;
+    renderer.domElement.addEventListener('touchmove', function(e){
+      if (e.touches.length === 2){
+        if (autoDirector.active) stopAutoDirector();
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (lastPinch > 0){
+          radius = Math.max(2, Math.min(1500, radius - (dist - lastPinch) * 1.2));
+          updateCamera();
         }
-      }, function(){
-        loadStatus[key] = { status: 'failed' };
-        updateList();
-        resolve(null);
-      });
-    });
-  }
-
-  function updateList(){
-    const el = document.getElementById('modelList');
-    if (!el) return;
-    const keys = Object.keys(loadStatus).sort();
-    el.innerHTML = keys.map(function(key){
-      const s = loadStatus[key];
-      let icon = s.status === 'loaded' ? '✅' : s.status === 'failed' ? '❌' : '⏳';
-      return '<div class="row">' + icon + ' ' + key + '</div>';
-    }).join('');
-  }
-
-  function scaleToHeight(model, targetHeight){
-    model.updateMatrixWorld(true);
-    let box = new THREE.Box3().setFromObject(model);
-    let size = new THREE.Vector3();
-    box.getSize(size);
-    if (size.y === 0) return 1;
-    const scale = targetHeight / size.y;
-    model.scale.setScalar(scale);
-    model.updateMatrixWorld(true);
-    box = new THREE.Box3().setFromObject(model);
-    model.position.y -= box.min.y;
-    model.updateMatrixWorld(true);
-    return scale;
-  }
-
-  function scaleToMaxDim(model, targetMax){
-    model.updateMatrixWorld(true);
-    const box = new THREE.Box3().setFromObject(model);
-    const size = new THREE.Vector3();
-    box.getSize(size);
-    const maxDim = Math.max(size.x, size.y, size.z);
-    if (maxDim === 0) return 1;
-    const scale = targetMax / maxDim;
-    model.scale.setScalar(scale);
-    model.updateMatrixWorld(true);
-    return scale;
-  }
-
-  function bottomToZero(model){
-    model.updateMatrixWorld(true);
-    const box = new THREE.Box3().setFromObject(model);
-    model.position.y -= box.min.y;
-  }
-
-  function forceVisible(obj){
-    obj.traverse(function(c){
-      c.visible = true;
-      c.frustumCulled = false;
-      if (c.isMesh && c.material){
-        const mats = Array.isArray(c.material) ? c.material : [c.material];
-        mats.forEach(function(m){
-          m.transparent = false;
-          m.opacity = 1;
-          m.depthWrite = true;
-          if (typeof m.roughness === 'number') m.roughness = 0.75;
-          m.side = THREE.DoubleSide;
-          if (m.emissive) m.emissive.setHex(0x000000); 
-          m.needsUpdate = true;
-        });
+        lastPinch = dist;
       }
-    });
-  }
+    }, { passive: true });
+    renderer.domElement.addEventListener('touchend', function(){ lastPinch = 0; });
 
-  function findFieldLevel(stadiumModel){
-    const raycaster = new THREE.Raycaster();
-    raycaster.set(new THREE.Vector3(0, 1000, 0), new THREE.Vector3(0, -1, 0));
-    const hits = raycaster.intersectObject(stadiumModel, true);
-    if (hits.length > 0) return hits[0].point.y;
-    return 0;
-  }
-
-  function makeBat(){
-    const g = new THREE.Group();
-    const bladeMat = new THREE.MeshStandardMaterial({ color: 0xd4b483, roughness: 0.75 });
-    const handleMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.6 });
-    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.60, 0.05), bladeMat);
-    blade.position.y = 0.30;
-    g.add(blade);
-    const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.36, 10), handleMat);
-    handle.position.y = 0.78;
-    g.add(handle);
-    return g;
-  }
-
-  function makeBall(){
-    const mat = new THREE.MeshStandardMaterial({ color: 0x991b1b, roughness: 0.5 });
-    return new THREE.Mesh(new THREE.SphereGeometry(BALL_DIAMETER / 2, 16, 16), mat);
-  }
-
-  function makeStumps(){
-    const g = new THREE.Group();
-    const mat = new THREE.MeshStandardMaterial({ color: 0xefe2c0, roughness: 0.7 });
-    [-0.11, 0, 0.11].forEach(function(x){
-      const s = new THREE.Mesh(new THREE.CylinderGeometry(0.019, 0.019, STUMPS_HEIGHT, 12), mat);
-      s.position.set(x, STUMPS_HEIGHT / 2, 0);
-      g.add(s);
-    });
-    return g;
-  }
-
-  let stadiumRadius = 100;
-  let fieldY = 0;
-
-  function placeStadium(model){
-    if (!model) return;
-    scaleToMaxDim(model, STADIUM_SIZE);
-    model.traverse(function(c){
-      if (c.isMesh){ c.castShadow = false; c.receiveShadow = false; }
-    });
-    bottomToZero(model);
-    model.position.set(0, 0, 0);
-    scene.add(model);
-    fieldY = findFieldLevel(model);
-  }
-
-  const playerRefs = {};
-  const accessoryRefs = {};
-
-  function placePlayers(playersData){
-    playersData.forEach(function(pd){
-      const src = pd.model;
-      const pos = pd.pos;
-      if (!src) return;
-
-      const group = new THREE.Group();
-      group.name = 'PLAYER_' + pos.role.replace(/[^a-z0-9]/gi, '_');
-
-      const pm = src;
-      pm.position.set(0, 0, 0);
-      pm.rotation.set(0, 0, 0);
-      pm.scale.set(1, 1, 1);
-
-      scaleToHeight(pm, PLAYER_HEIGHT);
-      forceVisible(pm);
-      group.add(pm);
-
-      if (pos.hasBat){
-        const bat = makeBat();
-        bat.position.set(-0.35, 0.95, 0.25);
-        bat.rotation.x = -0.7;
-        bat.rotation.z = 0.15;
-        group.add(bat);
-        accessoryRefs[pos.role] = accessoryRefs[pos.role] || {};
-        accessoryRefs[pos.role].bat = bat;
+    // ─── Tween ───────────────────────────────────────────────
+    function smoothTo(newTarget, newTheta, newPhi, newRadius, duration){
+      const sT = target.clone();
+      const sTh = theta, sP = phi, sR = radius;
+      const t0 = performance.now();
+      const dur = duration || 900;
+      function step(){
+        const t = Math.min(1, (performance.now() - t0) / dur);
+        const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+        target.lerpVectors(sT, newTarget, e);
+        theta  = sTh + (newTheta  - sTh) * e;
+        phi    = sP  + (newPhi    - sP)  * e;
+        radius = sR  + (newRadius - sR)  * e;
+        updateCamera();
+        if (t < 1) requestAnimationFrame(step);
       }
+      requestAnimationFrame(step);
+    }
 
-      if (pos.hasBall){
-        const ball = makeBall();
-        ball.position.set(0.35, 1.35, 0.20);
-        group.add(ball);
-        accessoryRefs[pos.role] = accessoryRefs[pos.role] || {};
-        accessoryRefs[pos.role].ball = ball;
-      }
+    // ─── Views ───────────────────────────────────────────────
+    // Helper: Y values are ALWAYS relative to ground level (F).
+    const V = THREE.Vector3;
+    function v(x, y, z){ return new V(x, F + y, z); }
 
-      group.traverse(function(c){ c.frustumCulled = false; });
-      group.rotation.y = pos.rotY || 0;
-      group.position.set(pos.x, fieldY, pos.z);
-
-      scene.add(group);
-      playerRefs[pos.role] = group;
-    });
-  }
-
-  async function boot(){
-    const tasks = [{ key: 'stadium', url: STADIUM_FILE, type: 'stadium' }];
-    FIELD_POSITIONS.forEach(function(pos, i){
-      tasks.push({
-        key: pos.role.replace(/[^a-z0-9]/gi, ''), 
-        url: PLAYER_FILES[i % PLAYER_FILES.length],
-        type: 'player',
-        pos: pos
-      });
-    });
-
-    let done = 0;
-    const results = await Promise.all(tasks.map(function(t){
-      return loadOne(t.key, t.url).then(function(m){
-        done++;
-        const sub = document.getElementById('loaderSub');
-        if (sub) sub.textContent = done + ' / ' + tasks.length + ' loaded';
-        return { type: t.type, model: m, pos: t.pos };
-      });
-    }));
-
-    const stadiumResult = results.find(function(r){ return r.type === 'stadium'; });
-    placeStadium(stadiumResult ? stadiumResult.model : null);
-
-    makePlacards(BOUNDARY_RADIUS);
-
-    const stumpsA = makeStumps();
-    stumpsA.position.set(0, fieldY, 10);
-    scene.add(stumpsA);
-
-    const stumpsB = makeStumps();
-    stumpsB.position.set(0, fieldY, -10);
-    scene.add(stumpsB);
-
-    const playerData = results.filter(function(r){ return r.type === 'player'; });
-    placePlayers(playerData);
-
-    setTimeout(function(){
-      const el = document.getElementById('loader');
-      if (el) el.classList.add('hide');
-    }, 400);
-
-    window.StadiumView = {
-      scene: scene,
-      camera: camera,
-      renderer: renderer,
-      sun: sun,
-      hemi: hemi,
-      ambient: ambient, 
-      stadiumRadius: stadiumRadius,
-      fieldY: fieldY,
-      players: playerRefs,
-      accessories: accessoryRefs,
-      stumpsStriker: stumpsA,
-      stumpsBowler: stumpsB,
-      BOUNDARY_RADIUS: BOUNDARY_RADIUS
+    const VIEWS = {
+      //     target (x, y-above-grass, z)   theta                  phi               radius
+      overview:  { t: v(0,    12,  0),       th: Math.PI * 0.25,    ph: Math.PI * 0.30, r: 380 },
+      tv:        { t: v(0,     5,  0),       th: 0,                 ph: Math.PI * 0.40, r: 65  },
+      tvlong:    { t: v(0,     5,  0),       th: 0,                 ph: Math.PI * 0.42, r: 100 },
+      tvhigh:    { t: v(0,     5,  0),       th: 0,                 ph: Math.PI * 0.30, r: 70  },
+      bowler:    { t: v(0,     3,  8.6),     th: -Math.PI * 0.50,   ph: Math.PI * 0.46, r: 38  },
+      batsman:   { t: v(0.4,   3,  8.6),     th: Math.PI * 0.50,    ph: Math.PI * 0.42, r: 14  },
+      batting:   { t: v(0.4,   3,  8.6),     th: Math.PI * 0.50,    ph: Math.PI * 0.42, r: 14  },
+      closeup:   { t: v(0.4,  1.4, 8.6),     th: -Math.PI * 0.35,   ph: Math.PI * 0.42, r: 5   },
+      stumps:    { t: v(0.4,  1.0, 8.6),     th: Math.PI * 0.50,    ph: Math.PI * 0.55, r: 2.5 },
+      sideOn:    { t: v(0,     2,  0),       th: 0,                 ph: Math.PI * 0.48, r: 30  },
+      pitch:     { t: v(0,     1,  0),       th: 0,                 ph: Math.PI * 0.50, r: 22  },
+      aerial:    { t: v(0,     0,  0),       th: Math.PI * 0.25,    ph: 0.12,           r: 420 },
+      spider:    { t: v(0,     6,  0),       th: Math.PI * 0.75,    ph: Math.PI * 0.35, r: 45  },
+      drone:     { t: v(0,     4,  5),       th: Math.PI * 1.2,     ph: Math.PI * 0.35, r: 70  }
     };
+
+    function applyView(name){
+      const v = VIEWS[name];
+      if (!v) return;
+      smoothTo(v.t, v.th, v.ph, v.r, 900);
+      document.querySelectorAll('#controls button[data-view]').forEach(function(b){
+        b.classList.toggle('on', b.getAttribute('data-view') === name);
+      });
+    }
+
+    // ─── Auto Director ───────────────────────────────────────
+    const autoDirector = {
+      active: false,
+      order: ['tv', 'bowler', 'closeup', 'sideOn', 'tvhigh', 'spider', 'stumps', 'tvlong', 'aerial'],
+      index: 0,
+      timer: null,
+      holdMs: 4500
+    };
+
+    function nextAutoView(){
+      if (!autoDirector.active) return;
+      const name = autoDirector.order[autoDirector.index % autoDirector.order.length];
+      autoDirector.index++;
+      applyView(name);
+      autoDirector.timer = setTimeout(nextAutoView, autoDirector.holdMs);
+    }
+    function startAutoDirector(){
+      if (autoDirector.active) return;
+      autoDirector.active = true;
+      autoDirector.index = 0;
+      const b = document.getElementById('btn-auto');
+      if (b){ b.classList.add('on'); b.textContent = '⏸ Stop Director'; }
+      nextAutoView();
+    }
+    function stopAutoDirector(){
+      autoDirector.active = false;
+      if (autoDirector.timer) clearTimeout(autoDirector.timer);
+      autoDirector.timer = null;
+      const b = document.getElementById('btn-auto');
+      if (b){ b.classList.remove('on'); b.textContent = '▶ Auto Director'; }
+    }
+    function toggleAutoDirector(){
+      if (autoDirector.active) stopAutoDirector();
+      else startAutoDirector();
+    }
+
+    // ─── Time of day — darker night, floods are the only source ─
+    const setFloods = (typeof SV.setFloodlights === 'function') ? SV.setFloodlights : function(){};
+    const floodCount = (SV.floodLights || []).length;
+
+    function setTime(mode){
+      if (!scene) return;
+
+      const bgHex = mode === 'day'    ? 0x87b8e0
+                  : mode === 'sunset' ? 0x4a1f16
+                  :                     0x01040a;
+
+      if (scene.background && scene.background.setHex){
+        scene.background.setHex(bgHex);
+      } else {
+        scene.background = new THREE.Color(bgHex);
+      }
+
+      if (ambient) ambient.intensity = mode === 'day' ? 0.8
+                                    : mode === 'sunset' ? 0.35
+                                    : 0.02;
+      if (hemi)    hemi.intensity    = mode === 'day' ? 0.6
+                                    : mode === 'sunset' ? 0.35
+                                    : 0.05;
+
+      if (sun){
+        sun.intensity = mode === 'day' ? 1.5
+                      : mode === 'sunset' ? 0.85
+                      : 0.0;
+        if (sun.color && sun.color.setHex){
+          sun.color.setHex(mode === 'day' ? 0xffffff
+                         : mode === 'sunset' ? 0xff8855
+                         : 0x8090ff);
+        }
+        if (sun.position && sun.position.set){
+          if (mode === 'sunset')       sun.position.set(300, 60, -200);
+          else if (mode === 'night')   sun.position.set(-150, 200, 80);
+          else                         sun.position.set(80, 400, 80);
+        }
+      }
+
+      if (scene.fog && scene.fog.color && scene.fog.color.setHex){
+        scene.fog.color.setHex(bgHex);
+      }
+
+      // 0 → off, 0.35 → warm-up, 1.0 → full
+      setFloods(mode === 'night' ? 1.0 : mode === 'sunset' ? 0.35 : 0.0);
+
+      // Reduce overall glow at night so it doesn't wash out
+      if (renderer){
+        renderer.toneMappingExposure = mode === 'night'  ? 0.75
+                                     : mode === 'sunset' ? 0.95
+                                     : 1.0;
+      }
+
+      console.log('[Time] ' + mode + ' — floods=' + floodCount +
+                  ' set=' + (mode === 'night' ? 'FULL' : mode === 'sunset' ? '35%' : 'OFF'));
+    }
+
+    // ─── Inject controls ─────────────────────────────────────
+    function injectControls(){
+      const bar = document.getElementById('controls');
+      if (!bar) return;
+
+      if (!document.getElementById('btn-auto')){
+        const autoBtn = document.createElement('button');
+        autoBtn.id = 'btn-auto';
+        autoBtn.textContent = '▶ Auto Director';
+        autoBtn.addEventListener('click', toggleAutoDirector);
+        bar.appendChild(autoBtn);
+      }
+
+      const viewBtnRow = document.createElement('div');
+      viewBtnRow.style.cssText =
+        'display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;padding-top:6px;' +
+        'border-top:1px solid rgba(255,255,255,.1);width:100%;justify-content:center;';
+
+      Object.keys(VIEWS).forEach(function(key){
+        const btn = document.createElement('button');
+        btn.setAttribute('data-view', key);
+        btn.textContent = key.charAt(0).toUpperCase() + key.slice(1);
+        btn.style.padding = '6px 10px';
+        btn.style.fontSize = '9.5px';
+        viewBtnRow.appendChild(btn);
+      });
+      bar.appendChild(viewBtnRow);
+
+      bar.querySelectorAll('button[data-view]').forEach(function(b){
+        b.addEventListener('click', function(){
+          if (autoDirector.active) stopAutoDirector();
+          applyView(b.getAttribute('data-view'));
+        });
+      });
+
+      bar.querySelectorAll('button[data-time]').forEach(function(b){
+        b.addEventListener('click', function(){
+          setTime(b.getAttribute('data-time'));
+          bar.querySelectorAll('button[data-time]').forEach(function(x){ x.classList.remove('on'); });
+          b.classList.add('on');
+        });
+      });
+
+      const activeTime = bar.querySelector('button[data-time].on') || bar.querySelector('button[data-time]');
+      if (activeTime) setTime(activeTime.getAttribute('data-time'));
+    }
+    injectControls();
+
+    document.addEventListener('keydown', function(e){
+      if (e.code === 'Space'){ e.preventDefault(); toggleAutoDirector(); }
+    });
+
+    console.log('[Camera] ground = y ' + F.toFixed(2) + ' — all views relative to grass');
+    console.log('[StadiumView] ✅ Controls ready — flood lights: ' + floodCount);
   }
-
-  window.addEventListener('resize', function(){
-    camera.aspect = innerWidth / innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(innerWidth, innerHeight);
-  });
-
-  function animate(){
-    requestAnimationFrame(animate);
-    renderer.render(scene, camera);
-  }
-
-  boot();
-  animate();
 
 })();
