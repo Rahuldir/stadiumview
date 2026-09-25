@@ -1,5 +1,5 @@
 /* ══════════════════════════════════════════════════════════════
-   StadiumView — full cricket setup, no crash
+   StadiumView — full cricket setup with visible players
    ══════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
@@ -14,7 +14,6 @@
   const STADIUM_SIZE = 200;
   const PLAYER_SIZE  = 1.9;
 
-  // Debug: pink spheres at feet (turn off once satisfied)
   const DEBUG_MARKERS = false;
 
   const ROT_STADIUM = { x: 0, y: 0, z: 0 };
@@ -40,7 +39,8 @@
   // ─── SCENE ───────────────────────────────────────────────────
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x87b8e0);
-  scene.fog = new THREE.Fog(0x87b8e0, 500, 2000);
+  // No fog — it darkens distant players
+  scene.fog = null;
 
   const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 5000);
 
@@ -53,13 +53,13 @@
   document.body.appendChild(renderer.domElement);
 
   // ─── LIGHTS ──────────────────────────────────────────────────
-  scene.add(new THREE.AmbientLight(0xffffff, 1.5));
-  const hemi = new THREE.HemisphereLight(0xffffff, 0x88aa88, 1.4);
+  scene.add(new THREE.AmbientLight(0xffffff, 2.0));      // ← brighter
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x88aa88, 1.5);
   scene.add(hemi);
   const sun = new THREE.DirectionalLight(0xffffff, 1.0);
   sun.position.set(80, 400, 80);
   scene.add(sun);
-  const fill = new THREE.DirectionalLight(0xffffff, 0.6);
+  const fill = new THREE.DirectionalLight(0xffffff, 0.7);
   fill.position.set(-80, 300, -80);
   scene.add(fill);
 
@@ -136,8 +136,9 @@
     model.position.y -= nb.min.y;
   }
 
+  /* ─── FIX: make players self-illuminate so they're visible ─── */
   function forceVisible(obj){
-    let meshCount = 0, transparentCount = 0;
+    let meshCount = 0;
     obj.traverse(function(c){
       c.visible = true;
       c.frustumCulled = false;
@@ -146,23 +147,25 @@
         if (c.material){
           const mats = Array.isArray(c.material) ? c.material : [c.material];
           mats.forEach(function(m){
-            if (m.transparent) transparentCount++;
             m.transparent = false;
             m.opacity = 1;
             m.alphaTest = 0;
-            if (m.depthWrite === false) m.depthWrite = true;
-            if (m.emissive) m.emissive.setHex(0x000000);
-            if (typeof m.roughness === 'number') m.roughness = 0.85;
+            m.depthWrite = true;
+            if (typeof m.roughness === 'number') m.roughness = 0.75;
             if (typeof m.metalness === 'number') m.metalness = 0;
             m.side = THREE.DoubleSide;
+            // Self-illumination — this is what makes players visible
+            if (m.emissive){
+              if (m.color) m.emissive.copy(m.color);
+              else m.emissive.setHex(0x333333);
+              m.emissiveIntensity = 0.35;
+            }
             m.needsUpdate = true;
           });
         }
-        c.castShadow = false;
-        c.receiveShadow = false;
       }
     });
-    return { meshCount: meshCount, transparentCount: transparentCount };
+    return { meshCount: meshCount };
   }
 
   function shuffle(arr){
@@ -226,7 +229,6 @@
   // ─── REPLAY SCREEN ───────────────────────────────────────────
   function buildReplayScreen(x, z, rotY, fieldY){
     const W = 25, H = 14, D = 0.6;
-
     const group = new THREE.Group();
 
     const frame = new THREE.Mesh(
@@ -309,7 +311,9 @@
     console.log('[Raycast] grass at y = ' + fieldY.toFixed(2));
   }
 
-  // ─── PLACE PLAYERS ───────────────────────────────────────────
+  // ─── PLAYERS ─────────────────────────────────────────────────
+  const playerRefs = {};
+
   function placePlayers(models){
     const valid = models.filter(function(m){ return m; });
     if (valid.length === 0){ console.warn('[Players] none loaded'); return; }
@@ -322,6 +326,7 @@
       const pos = FIELD_POSITIONS[i];
 
       const group = new THREE.Group();
+      group.name = 'PLAYER_' + pos.role.replace(/[^a-z0-9]/gi, '_');
 
       const pm = src.clone(true);
       pm.position.set(0, 0, 0);
@@ -331,13 +336,6 @@
       const scale = autoFit(pm, PLAYER_SIZE);
       const vis = forceVisible(pm);
       bottomToZero(pm);
-
-      const pbox = new THREE.Box3().setFromObject(pm);
-      const psz = new THREE.Vector3();
-      pbox.getSize(psz);
-      console.log('[Player ' + pos.role + '] scale=' + scale.toFixed(4) +
-                  ' size=' + psz.x.toFixed(2) + '×' + psz.y.toFixed(2) + '×' + psz.z.toFixed(2) +
-                  ' meshes=' + vis.meshCount + ' transparent=' + vis.transparentCount);
 
       group.add(pm);
 
@@ -370,8 +368,11 @@
       group.position.y = fieldY;
 
       scene.add(group);
+      playerRefs[pos.role] = group;
+
+      console.log('[Player ' + pos.role + '] scale=' + scale.toFixed(3) + ' meshes=' + vis.meshCount);
     }
-    console.log('[Players] placed ' + FIELD_POSITIONS.length + ' groups');
+    console.log('[Players] placed 15 groups');
   }
 
   function setLoaderProgress(loaded, total){
@@ -407,11 +408,9 @@
 
     placeStadium(pick('stadium'));
 
-    // Replay screens inside stands
     buildReplayScreen( 55, 0, -Math.PI / 2, fieldY);
     buildReplayScreen(-55, 0,  Math.PI / 2, fieldY);
 
-    // Stumps at both ends
     const stumpsA = makeStumps();
     stumpsA.position.set(0, fieldY, 10);
     scene.add(stumpsA);
@@ -419,9 +418,7 @@
     const stumpsB = makeStumps();
     stumpsB.position.set(0, fieldY, -10);
     scene.add(stumpsB);
-    console.log('[Stumps] placed at z = ±10');
 
-    // Players
     const playerModels = PLAYER_FILES.map(function(_, i){
       return pick('p' + (i + 1));
     }).filter(function(m){ return m; });
@@ -441,7 +438,8 @@
       sun: sun,
       hemi: hemi,
       stadiumRadius: stadiumRadius,
-      fieldY: fieldY
+      fieldY: fieldY,
+      players: playerRefs
     };
 
     console.log('[StadiumView] Ready. fieldY=' + fieldY.toFixed(2));
