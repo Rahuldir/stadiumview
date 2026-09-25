@@ -1,86 +1,82 @@
 /* ══════════════════════════════════════════════════════════════
-   StadiumView — real-world dimensions (Fixed Lighting & Colors)
-   Player  1.8m  |  Bat  0.96m  |  Ball  0.072m  |  Stumps  0.71m
+   StadiumView — Realistic Broadcast Edition (merged)
+   • Per-role model loading (7 files cycled across 15 roles)
+   • Real-world dimensions (Player 1.8m, Bat 0.96m, Ball 7.2cm, Stumps 71cm)
+   • 6 real flood light towers (SpotLight + emissive bank)
+   • Textured advertising boards around the boundary
+   • Realistic cricket fielding formation
    ══════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
 
   const STADIUM_FILE = 'models/stadium.glb';
-
   const PLAYER_FILES = [
     'models/p1.glb','models/p2.glb','models/p3.glb',
     'models/p4.glb','models/p5.glb','models/p6.glb','models/p7.glb'
   ];
 
-  // ─── REAL-WORLD DIMENSIONS (metres) ─────────────────────────
-  const STADIUM_SIZE       = 200;     
-  const PLAYER_HEIGHT      = 1.80;    
-  const BAT_LENGTH         = 0.96;    
-  const BALL_DIAMETER      = 0.072;   
-  const STUMPS_HEIGHT      = 0.71;    
-  const PITCH_LENGTH       = 20.12;   
-  const BOUNDARY_RADIUS    = 30;      
+  // ─── REAL-WORLD DIMENSIONS ──────────────────────────────────
+  const STADIUM_SIZE       = 200;
+  const PLAYER_HEIGHT      = 1.80;
+  const BALL_DIAMETER      = 0.072;
+  const STUMPS_HEIGHT      = 0.71;
+  const BOUNDARY_RADIUS    = 38;
 
-  const ROT_STADIUM = { x: 0, y: 0, z: 0 };
-
+  // ─── REAL CRICKET FIELDING FORMATION ────────────────────────
+  // Ring fielders pushed to ~24m; close fielders stay tight.
   const FIELD_POSITIONS = [
-    { role: 'Striker',            x: 0.4,   y: 0, z: 9,     rotY: Math.PI,      hasBat: true,  ringColor: 0x22d3ee },
-    { role: 'Non-Striker',        x: -0.4,  y: 0, z: -9,    rotY: 0,            hasBat: true,  ringColor: 0x22d3ee },
-    { role: 'Umpire (Bowl End)',  x: -1.0,  y: 0, z: -11.5, rotY: 0,                           ringColor: 0xa855f7 },
-    { role: 'Umpire (Sq Leg)',    x: -14,   y: 0, z: 0,     rotY: Math.PI * 0.5,               ringColor: 0xa855f7 },
-    { role: 'Bowler',             x: 0,     y: 0, z: -14,   rotY: 0,            hasBall: true, ringColor: 0xe10600 },
-    { role: 'Keeper',             x: 0,     y: 0, z: 13,    rotY: Math.PI,                     ringColor: 0xfbbf24 },
-    { role: 'Slip',               x: 3,     y: 0, z: 14.5,  rotY: Math.PI,                     ringColor: 0x00e676 },
-    { role: 'Point',              x: 15,    y: 0, z: 6,     rotY: Math.PI * 0.75,              ringColor: 0x00e676 },
-    { role: 'Cover',              x: 18,    y: 0, z: -3,    rotY: Math.PI * 0.55,              ringColor: 0x00e676 },
-    { role: 'Mid-Off',            x: 10,    y: 0, z: -10,   rotY: 0,                           ringColor: 0x00e676 },
-    { role: 'Mid-On',             x: -10,   y: 0, z: -10,   rotY: 0,                           ringColor: 0x00e676 },
-    { role: 'Mid-Wicket',         x: -18,   y: 0, z: -3,    rotY: Math.PI * 1.45,              ringColor: 0x00e676 },
-    { role: 'Square Leg',         x: -16,   y: 0, z: 6,     rotY: Math.PI * 1.25,              ringColor: 0x00e676 },
-    { role: 'Fine Leg',           x: -22,   y: 0, z: 12,    rotY: Math.PI * 1.2,               ringColor: 0x00e676 },
-    { role: 'Third Man',          x: 12,    y: 0, z: 14,    rotY: Math.PI,                     ringColor: 0x00e676 }
+    { role: 'Striker',            x:  0.4,  y: 0, z:  8.6,  rotY: Math.PI,          hasBat: true  },
+    { role: 'Non-Striker',        x: -1.2,  y: 0, z: -8.6,  rotY: 0,                hasBat: true  },
+    { role: 'Umpire (Bowl End)',  x: -1.0,  y: 0, z: -11.5, rotY: 0                                },
+    { role: 'Umpire (Sq Leg)',    x: -13,   y: 0, z:  0,    rotY: Math.PI * 0.5                   },
+    { role: 'Bowler',             x:  0.5,  y: 0, z: -24,   rotY: 0,                hasBall: true },
+    { role: 'Keeper',             x:  0,    y: 0, z:  14,   rotY: Math.PI                         },
+    { role: 'Slip',               x:  3,    y: 0, z:  14.5, rotY: Math.PI                         },
+    { role: 'Third Man',          x:  15,   y: 0, z:  22,   rotY: Math.PI * 0.9                   },
+    { role: 'Point',              x:  24,   y: 0, z:  5,    rotY: Math.PI * 0.85                  },
+    { role: 'Cover',              x:  21,   y: 0, z: -14,   rotY: Math.PI * 0.62                  },
+    { role: 'Mid-Off',            x:  9,    y: 0, z: -25,   rotY: Math.PI * 0.12                  },
+    { role: 'Mid-On',             x: -9,    y: 0, z: -25,   rotY: -Math.PI * 0.12                 },
+    { role: 'Mid-Wicket',         x: -22,   y: 0, z: -14,   rotY: -Math.PI * 0.6                  },
+    { role: 'Square Leg',         x: -24,   y: 0, z:  4,    rotY: -Math.PI * 0.85                 },
+    { role: 'Fine Leg',           x: -15,   y: 0, z:  22,   rotY: Math.PI * 1.15                  }
   ];
 
-  // ─── SCENE ───────────────────────────────────────────────────
+  // ─── SCENE ──────────────────────────────────────────────────
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x87b8e0);
   scene.fog = null;
 
   const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 5000);
-
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(innerWidth, innerHeight);
   renderer.shadowMap.enabled = false;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  // Lowered default exposure so things aren't washed out
-  renderer.toneMappingExposure = 1.0; 
+  renderer.toneMappingExposure = 1.0;
   document.body.appendChild(renderer.domElement);
 
-  // ─── LIGHTS (Lowered baselines so Night mode works) ──────────
+  // ─── DEFAULT (DAY) LIGHTS ───────────────────────────────────
   const ambient = new THREE.AmbientLight(0xffffff, 0.8);
   scene.add(ambient);
-  
   const hemi = new THREE.HemisphereLight(0xffffff, 0x88aa88, 0.6);
   scene.add(hemi);
-  
   const sun = new THREE.DirectionalLight(0xffffff, 1.5);
   sun.position.set(80, 400, 80);
   scene.add(sun);
 
-  // ─── LOADER ──────────────────────────────────────────────────
+  // ─── LOADER ─────────────────────────────────────────────────
   const loader = new THREE.GLTFLoader();
   if (typeof THREE.DRACOLoader === 'function'){
     try {
       const draco = new THREE.DRACOLoader();
       draco.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/draco/');
       loader.setDRACOLoader(draco);
-      console.log('[Loader] DRACO decoder attached ✅');
-    } catch(e){ console.warn('[Loader] DRACO setup failed:', e); }
+      console.log('[Loader] DRACO attached ✅');
+    } catch(e){}
   }
 
   const loadStatus = {};
-
   function loadOne(key, url){
     loadStatus[key] = { status: 'pending' };
     updateList();
@@ -96,10 +92,9 @@
           loadStatus[key] = { status: 'loading', pct: Math.round((p.loaded / p.total) * 100) };
           updateList();
         }
-      }, function(err){
+      }, function(){
         loadStatus[key] = { status: 'failed' };
         updateList();
-        console.warn('[StadiumView] ❌ ' + key + ' — ' + (err.message || 'not found'));
         resolve(null);
       });
     });
@@ -111,15 +106,12 @@
     const keys = Object.keys(loadStatus).sort();
     el.innerHTML = keys.map(function(key){
       const s = loadStatus[key];
-      let icon = '⏳', cls = 'wait';
-      if (s.status === 'loaded')       { icon = '✅'; cls = 'ok'; }
-      else if (s.status === 'failed')  { icon = '❌'; cls = 'fail'; }
-      else if (s.status === 'loading') { icon = '📥'; cls = 'wait'; }
-      return '<div class="row ' + cls + '">' + icon + ' ' + key + '</div>';
+      let icon = s.status === 'loaded' ? '✅' : s.status === 'failed' ? '❌' : '⏳';
+      return '<div class="row">' + icon + ' ' + key + '</div>';
     }).join('');
   }
 
-  // ─── HELPERS ─────────────────────────────────────────────────
+  // ─── HELPERS ────────────────────────────────────────────────
   function scaleToHeight(model, targetHeight){
     model.updateMatrixWorld(true);
     let box = new THREE.Box3().setFromObject(model);
@@ -155,30 +147,22 @@
   }
 
   function forceVisible(obj){
-    let meshCount = 0;
     obj.traverse(function(c){
       c.visible = true;
       c.frustumCulled = false;
-      if (c.isMesh){
-        meshCount++;
-        if (c.material){
-          const mats = Array.isArray(c.material) ? c.material : [c.material];
-          mats.forEach(function(m){
-            m.transparent = false;
-            m.opacity = 1;
-            m.alphaTest = 0;
-            m.depthWrite = true;
-            if (typeof m.roughness === 'number') m.roughness = 0.75;
-            if (typeof m.metalness === 'number') m.metalness = 0;
-            m.side = THREE.DoubleSide;
-            // FIXED: Removed the emissive glowing that made players washed out!
-            if (m.emissive) m.emissive.setHex(0x000000); 
-            m.needsUpdate = true;
-          });
-        }
+      if (c.isMesh && c.material){
+        const mats = Array.isArray(c.material) ? c.material : [c.material];
+        mats.forEach(function(m){
+          m.transparent = false;
+          m.opacity = 1;
+          m.depthWrite = true;
+          if (typeof m.roughness === 'number') m.roughness = 0.75;
+          m.side = THREE.DoubleSide;
+          if (m.emissive) m.emissive.setHex(0x000000);
+          m.needsUpdate = true;
+        });
       }
     });
-    return { meshCount: meshCount };
   }
 
   function findFieldLevel(stadiumModel){
@@ -189,10 +173,10 @@
     return 0;
   }
 
-  // ─── EQUIPMENT ───────────────────────────────────────────────
+  // ─── EQUIPMENT ──────────────────────────────────────────────
   function makeBat(){
     const g = new THREE.Group();
-    const bladeMat = new THREE.MeshStandardMaterial({ color: 0xd4b483, roughness: 0.75 });
+    const bladeMat  = new THREE.MeshStandardMaterial({ color: 0xd4b483, roughness: 0.75 });
     const handleMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.6 });
     const blade = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.60, 0.05), bladeMat);
     blade.position.y = 0.30;
@@ -204,98 +188,209 @@
   }
 
   function makeBall(){
-    const r = BALL_DIAMETER / 2;
-    const mat = new THREE.MeshStandardMaterial({
-      color: 0x991b1b,
-      roughness: 0.5
-    });
-    const ball = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 16), mat);
-    const seamMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-    const seam = new THREE.Mesh(new THREE.TorusGeometry(r, 0.004, 6, 20), seamMat);
-    seam.rotation.y = Math.PI / 2;
-    ball.add(seam);
-    return ball;
+    const mat = new THREE.MeshStandardMaterial({ color: 0x991b1b, roughness: 0.5 });
+    return new THREE.Mesh(new THREE.SphereGeometry(BALL_DIAMETER / 2, 16, 16), mat);
   }
 
   function makeStumps(){
     const g = new THREE.Group();
     const mat = new THREE.MeshStandardMaterial({ color: 0xefe2c0, roughness: 0.7 });
-    const bailMat = new THREE.MeshStandardMaterial({ color: 0xd4b483, roughness: 0.7 });
     [-0.11, 0, 0.11].forEach(function(x){
-      const s = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.019, 0.019, STUMPS_HEIGHT, 12),
-        mat
-      );
+      const s = new THREE.Mesh(new THREE.CylinderGeometry(0.019, 0.019, STUMPS_HEIGHT, 12), mat);
       s.position.set(x, STUMPS_HEIGHT / 2, 0);
       g.add(s);
-    });
-    [-0.055, 0.055].forEach(function(x){
-      const b = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.10, 8), bailMat);
-      b.rotation.z = Math.PI / 2;
-      b.position.set(x, STUMPS_HEIGHT + 0.01, 0);
-      g.add(b);
     });
     return g;
   }
 
-  // ─── GROUND RING MARKERS ─────────────────────────────────────
-  function makeGroundMarker(x, z, color, fieldY){
-    const group = new THREE.Group();
-    const ring = new THREE.Mesh(
-      new THREE.RingGeometry(0.9, 1.3, 24),
-      new THREE.MeshBasicMaterial({
-        color: color,
-        side: THREE.DoubleSide,
-        transparent: true,
-        opacity: 0.9,
-        depthWrite: false
-      })
-    );
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.y = fieldY + 0.05;
-    group.add(ring);
-
-    const pole = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.05, 0.05, 3.0, 8),
-      new THREE.MeshBasicMaterial({
-        color: color,
-        transparent: true,
-        opacity: 0.5,
-        depthWrite: false
-      })
-    );
-    pole.position.y = fieldY + 1.5;
-    group.add(pole);
-
-    group.position.set(x, 0, z);
-    scene.add(group);
-    return group;
-  }
-
-  // ─── STADIUM ─────────────────────────────────────────────────
+  // ─── STADIUM ────────────────────────────────────────────────
   let stadiumRadius = 100;
   let fieldY = 0;
 
   function placeStadium(model){
     if (!model) return;
-    model.rotation.set(ROT_STADIUM.x, ROT_STADIUM.y, ROT_STADIUM.z);
     scaleToMaxDim(model, STADIUM_SIZE);
     model.traverse(function(c){
       if (c.isMesh){ c.castShadow = false; c.receiveShadow = false; }
     });
     bottomToZero(model);
-    model.position.x = 0;
-    model.position.z = 0;
+    model.position.set(0, 0, 0);
     scene.add(model);
 
     const box = new THREE.Box3().setFromObject(model);
     const sz = new THREE.Vector3();
     box.getSize(sz);
     stadiumRadius = Math.max(sz.x, sz.z) * 0.6;
+    console.log('[Stadium] size: ' + sz.x.toFixed(1) + ' × ' + sz.y.toFixed(1) + ' × ' + sz.z.toFixed(1));
+
     fieldY = findFieldLevel(model);
+    console.log('[Raycast] grass at y = ' + fieldY.toFixed(2));
   }
 
-  // ─── PLAYERS ─────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════
+  //  FLOOD LIGHTS
+  // ═══════════════════════════════════════════════════════════
+  const FLOODLIGHT_POSITIONS = [
+    { x:  95, z:  55 },
+    { x: -95, z:  55 },
+    { x:  95, z: -55 },
+    { x: -95, z: -55 },
+    { x:  55, z:  95 },
+    { x: -55, z:  95 }
+  ];
+
+  const floodLights = [];   // { group, setGlow(v) }
+
+  function makeLampTexture(){
+    const cvs = document.createElement('canvas');
+    cvs.width = 256; cvs.height = 128;
+    const ctx = cvs.getContext('2d');
+    ctx.fillStyle = '#111';
+    ctx.fillRect(0, 0, 256, 128);
+    const cols = 8, rows = 4;
+    for (let r = 0; r < rows; r++){
+      for (let c = 0; c < cols; c++){
+        ctx.fillStyle = '#000';
+        ctx.fillRect(c * (256/cols) + 3, r * (128/rows) + 3,
+                     (256/cols) - 6, (128/rows) - 6);
+      }
+    }
+    return new THREE.CanvasTexture(cvs);
+  }
+
+  const lampTex = makeLampTexture();
+
+  function makeFloodlight(cfg, yBase){
+    const group = new THREE.Group();
+    const towerH = 42;
+
+    const pole = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.7, 1.3, towerH, 10),
+      new THREE.MeshStandardMaterial({ color: 0x2b2b2b, roughness: 0.55, metalness: 0.6 })
+    );
+    pole.position.y = towerH / 2;
+    group.add(pole);
+
+    const beam = new THREE.Mesh(
+      new THREE.BoxGeometry(0.6, 0.6, 8),
+      new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.6, metalness: 0.5 })
+    );
+    beam.position.y = towerH + 0.5;
+    group.add(beam);
+
+    const bankMat = new THREE.MeshStandardMaterial({
+      color: 0x111111, roughness: 0.4, metalness: 0.2,
+      emissive: 0xfff1c9, emissiveIntensity: 0.0
+    });
+    const bank = new THREE.Mesh(new THREE.BoxGeometry(7, 4.5, 1.2), bankMat);
+    bank.position.set(0, towerH + 2, 0);
+    group.add(bank);
+
+    const lampMat = new THREE.MeshBasicMaterial({
+      map: lampTex, transparent: false, toneMapped: false
+    });
+    const lampFace = new THREE.Mesh(new THREE.PlaneGeometry(6.6, 4.2), lampMat);
+    lampFace.position.set(0, towerH + 2, 0.65);
+    group.add(lampFace);
+
+    group.position.set(cfg.x, yBase, cfg.z);
+    group.lookAt(0, yBase + 30, 0);
+
+    // Aimed SpotLight — the actual light source
+    const spot = new THREE.SpotLight(0xfff4dc, 0.0, 400, Math.PI * 0.22, 0.55, 1.1);
+    spot.position.set(0, towerH + 2, 0);
+    spot.target.position.set(0, yBase, 0);
+    group.add(spot);
+    group.add(spot.target);
+
+    // Low fill — gives the pitch its "lit from above" look
+    const fillLight = new THREE.PointLight(0xfff0d0, 0.0, 180, 1.4);
+    fillLight.position.set(0, towerH, 0);
+    group.add(fillLight);
+
+    scene.add(group);
+
+    const ref = {
+      group, bank, bankMat, lampMat, lampFace, spot, fillLight,
+      setGlow: function(v){
+        bankMat.emissiveIntensity = v * 2.2;
+        spot.intensity            = v * 3.5;
+        fillLight.intensity       = v * 0.9;
+        const c = 0.25 + v * 0.75;
+        lampMat.color.setRGB(c, c, c);
+      }
+    };
+    ref.setGlow(0);
+    floodLights.push(ref);
+  }
+
+  function buildFloodlights(){
+    FLOODLIGHT_POSITIONS.forEach(function(cfg){
+      makeFloodlight(cfg, fieldY);
+    });
+    console.log('[Floodlights] ' + floodLights.length + ' towers built');
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  //  ADVERTISING BOARDS (textured, around boundary rope)
+  // ═══════════════════════════════════════════════════════════
+  const AD_BOARD_RADIUS = BOUNDARY_RADIUS + 1.5;
+  const AD_BOARD_COUNT  = 24;
+
+  function makeAdTexture(label, bg, fg){
+    const cvs = document.createElement('canvas');
+    cvs.width = 512; cvs.height = 96;
+    const ctx = cvs.getContext('2d');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, cvs.width, cvs.height);
+    ctx.fillStyle = fg;
+    ctx.fillRect(0, 0, cvs.width, 6);
+    ctx.fillRect(0, cvs.height - 6, cvs.width, 6);
+    ctx.fillStyle = fg;
+    ctx.font = 'bold 62px Arial, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, cvs.width / 2, cvs.height / 2 + 2);
+    const tex = new THREE.CanvasTexture(cvs);
+    tex.anisotropy = 4;
+    return tex;
+  }
+
+  function buildAdBoards(){
+    const brands = [
+      { label: 'CRICMAX',   bg: '#0a0e1a', fg: '#00e676' },
+      { label: 'CRICMAX',   bg: '#7f1d1d', fg: '#ffffff' },
+      { label: 'LIVE',      bg: '#0a0e1a', fg: '#22d3ee' },
+      { label: 'REPLAY',    bg: '#111111', fg: '#ff6d00' },
+      { label: 'CRICMAX',   bg: '#1e3a8a', fg: '#ffffff' },
+      { label: 'MATCHVIEW', bg: '#0a0e1a', fg: '#fbbf24' }
+    ];
+
+    const boardH = 1.0;
+    const boardW = 5.0;
+
+    for (let i = 0; i < AD_BOARD_COUNT; i++){
+      const a = (i / AD_BOARD_COUNT) * Math.PI * 2;
+      const x = Math.cos(a) * AD_BOARD_RADIUS;
+      const z = Math.sin(a) * AD_BOARD_RADIUS;
+      const b = brands[i % brands.length];
+
+      const tex = makeAdTexture(b.label, b.bg, b.fg);
+      const mat = new THREE.MeshStandardMaterial({
+        map: tex, roughness: 0.6, metalness: 0.1,
+        emissive: 0x111111, emissiveIntensity: 0.35
+      });
+      const board = new THREE.Mesh(new THREE.BoxGeometry(boardW, boardH, 0.15), mat);
+      board.position.set(x, fieldY + boardH / 2 + 0.05, z);
+      board.lookAt(0, fieldY + boardH / 2, 0);
+      scene.add(board);
+    }
+    console.log('[AdBoards] ' + AD_BOARD_COUNT + ' textured boards @ r=' + AD_BOARD_RADIUS);
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  //  PLAYERS
+  // ═══════════════════════════════════════════════════════════
   const playerRefs = {};
   const accessoryRefs = {};
 
@@ -307,6 +402,7 @@
 
       const group = new THREE.Group();
       group.name = 'PLAYER_' + pos.role.replace(/[^a-z0-9]/gi, '_');
+      group.userData.role = pos.role;
 
       const pm = src;
       pm.position.set(0, 0, 0);
@@ -315,7 +411,6 @@
 
       scaleToHeight(pm, PLAYER_HEIGHT);
       forceVisible(pm);
-
       group.add(pm);
 
       if (pos.hasBat){
@@ -338,32 +433,20 @@
 
       group.traverse(function(c){ c.frustumCulled = false; });
       group.rotation.y = pos.rotY || 0;
-      group.position.x = pos.x;
-      group.position.z = pos.z;
-      group.position.y = fieldY;
+      group.position.set(pos.x, fieldY, pos.z);
 
       scene.add(group);
       playerRefs[pos.role] = group;
-      makeGroundMarker(pos.x, pos.z, pos.ringColor, fieldY);
     });
+    console.log('[Players] ' + Object.keys(playerRefs).length + ' placed (no markers)');
   }
 
-  function setLoaderProgress(loaded, total){
-    const sub = document.getElementById('loaderSub');
-    const txt = document.getElementById('loaderText');
-    if (sub) sub.textContent = loaded + ' / ' + total + ' loaded';
-    if (txt && loaded === total) txt.textContent = 'Ready';
-  }
-
-  // ─── BOOT ────────────────────────────────────────────────────
+  // ─── BOOT ───────────────────────────────────────────────────
   async function boot(){
-    const tasks = [
-      { key: 'stadium', url: STADIUM_FILE, type: 'stadium' }
-    ];
-    
+    const tasks = [{ key: 'stadium', url: STADIUM_FILE, type: 'stadium' }];
     FIELD_POSITIONS.forEach(function(pos, i){
       tasks.push({
-        key: pos.role.replace(/[^a-z0-9]/gi, ''), 
+        key: pos.role.replace(/[^a-z0-9]/gi, ''),
         url: PLAYER_FILES[i % PLAYER_FILES.length],
         type: 'player',
         pos: pos
@@ -371,18 +454,22 @@
     });
 
     let done = 0;
-    const total = tasks.length;
-
     const results = await Promise.all(tasks.map(function(t){
       return loadOne(t.key, t.url).then(function(m){
         done++;
-        setLoaderProgress(done, total);
+        const sub = document.getElementById('loaderSub');
+        const txt = document.getElementById('loaderText');
+        if (sub) sub.textContent = done + ' / ' + tasks.length + ' loaded';
+        if (txt && done === tasks.length) txt.textContent = 'Ready';
         return { type: t.type, model: m, pos: t.pos };
       });
     }));
 
     const stadiumResult = results.find(function(r){ return r.type === 'stadium'; });
     placeStadium(stadiumResult ? stadiumResult.model : null);
+
+    buildFloodlights();
+    buildAdBoards();
 
     const stumpsA = makeStumps();
     stumpsA.position.set(0, fieldY, 10);
@@ -392,70 +479,6 @@
     stumpsB.position.set(0, fieldY, -10);
     scene.add(stumpsB);
 
-    // Replay screens
-    (function buildReplay(x, z, rotY){
-      const W = 25, H = 14, D = 0.6;
-      const g = new THREE.Group();
-      const frame = new THREE.Mesh(
-        new THREE.BoxGeometry(W + 1.2, H + 1.2, D),
-        new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.7, metalness: 0.3 })
-      );
-      g.add(frame);
-      const cvs = document.createElement('canvas');
-      cvs.width = 1024; cvs.height = 576;
-      const cx = cvs.getContext('2d');
-      cx.fillStyle = '#0a0e1a'; cx.fillRect(0, 0, cvs.width, cvs.height);
-      cx.fillStyle = '#e10600'; cx.fillRect(0, 0, cvs.width, 10); cx.fillRect(0, cvs.height - 10, cvs.width, 10);
-      cx.fillStyle = '#ffffff'; cx.font = 'bold 110px Arial';
-      cx.textAlign = 'center'; cx.textBaseline = 'middle';
-      cx.fillText('CRICMAX', cvs.width / 2, 200);
-      cx.fillStyle = '#00e676'; cx.font = 'bold 80px Arial';
-      cx.fillText('REPLAY', cvs.width / 2, 330);
-      cx.fillStyle = '#7a8590'; cx.font = 'bold 34px Arial';
-      cx.fillText('LIVE · MATCH VIEWER', cvs.width / 2, 440);
-      const tex = new THREE.CanvasTexture(cvs);
-      const screen = new THREE.Mesh(
-        new THREE.PlaneGeometry(W, H),
-        new THREE.MeshBasicMaterial({ map: tex })
-      );
-      screen.position.z = D / 2 + 0.05;
-      g.add(screen);
-      g.position.set(x, fieldY + H / 2 + 4, z);
-      g.rotation.y = rotY;
-      scene.add(g);
-    })(55, 0, -Math.PI / 2);
-    (function buildReplay(x, z, rotY){
-      const W = 25, H = 14, D = 0.6;
-      const g = new THREE.Group();
-      const frame = new THREE.Mesh(
-        new THREE.BoxGeometry(W + 1.2, H + 1.2, D),
-        new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.7, metalness: 0.3 })
-      );
-      g.add(frame);
-      const cvs = document.createElement('canvas');
-      cvs.width = 1024; cvs.height = 576;
-      const cx = cvs.getContext('2d');
-      cx.fillStyle = '#0a0e1a'; cx.fillRect(0, 0, cvs.width, cvs.height);
-      cx.fillStyle = '#e10600'; cx.fillRect(0, 0, cvs.width, 10); cx.fillRect(0, cvs.height - 10, cvs.width, 10);
-      cx.fillStyle = '#ffffff'; cx.font = 'bold 110px Arial';
-      cx.textAlign = 'center'; cx.textBaseline = 'middle';
-      cx.fillText('CRICMAX', cvs.width / 2, 200);
-      cx.fillStyle = '#00e676'; cx.font = 'bold 80px Arial';
-      cx.fillText('REPLAY', cvs.width / 2, 330);
-      cx.fillStyle = '#7a8590'; cx.font = 'bold 34px Arial';
-      cx.fillText('LIVE · MATCH VIEWER', cvs.width / 2, 440);
-      const tex = new THREE.CanvasTexture(cvs);
-      const screen = new THREE.Mesh(
-        new THREE.PlaneGeometry(W, H),
-        new THREE.MeshBasicMaterial({ map: tex })
-      );
-      screen.position.z = D / 2 + 0.05;
-      g.add(screen);
-      g.position.set(x, fieldY + H / 2 + 4, z);
-      g.rotation.y = rotY;
-      scene.add(g);
-    })(-55, 0, Math.PI / 2);
-
     const playerData = results.filter(function(r){ return r.type === 'player'; });
     placePlayers(playerData);
 
@@ -464,24 +487,28 @@
       if (el) el.classList.add('hide');
     }, 400);
 
-    // Exported ambient so controls can dim it
     window.StadiumView = {
       scene: scene,
       camera: camera,
       renderer: renderer,
       sun: sun,
       hemi: hemi,
-      ambient: ambient, 
+      ambient: ambient,
       stadiumRadius: stadiumRadius,
       fieldY: fieldY,
       players: playerRefs,
       accessories: accessoryRefs,
       stumpsStriker: stumpsA,
       stumpsBowler: stumpsB,
-      BOUNDARY_RADIUS: BOUNDARY_RADIUS
+      BOUNDARY_RADIUS: BOUNDARY_RADIUS,
+      floodLights: floodLights,
+      setFloodlights: function(v){
+        floodLights.forEach(function(f){ f.setGlow(v); });
+      }
     };
 
-    console.log('[StadiumView] Ready.');
+    console.log('[StadiumView] Ready. ' + floodLights.length + ' flood towers, ' +
+                AD_BOARD_COUNT + ' ad boards, ' + Object.keys(playerRefs).length + ' players.');
   }
 
   window.addEventListener('resize', function(){
