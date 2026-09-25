@@ -1,30 +1,30 @@
 /* ══════════════════════════════════════════════════════════════
-   StadiumView — simplified, guaranteed to work
-   Procedural equipment + player model loading with logging
+   StadiumView — with debug markers to diagnose missing players
    ══════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
 
-  const STADIUM_FILE   = 'models/stadium.glb';
-  const EQUIPMENT_FILE = 'models/equipment.glb';
+  const STADIUM_FILE = 'models/stadium.glb';
 
   const PLAYER_FILES = [
     'models/p1.glb','models/p2.glb','models/p3.glb',
     'models/p4.glb','models/p5.glb','models/p6.glb','models/p7.glb'
   ];
 
-  const STADIUM_SIZE   = 200;
-  const PLAYER_SIZE    = 1.9;
+  const STADIUM_SIZE = 200;
+  const PLAYER_SIZE  = 1.9;
+
+  // Debug: draws a red marker at every player position
+  const DEBUG_MARKERS = true;   // ← set to false once you see players
 
   const ROT_STADIUM = { x: 0, y: 0, z: 0 };
 
-  // ─── Cricket field positions ─────────────────────────────────
   const FIELD_POSITIONS = [
-    { role: 'Striker',            x: 0.35,  y: 0, z: 9,     rotY: Math.PI,   hasBat: true },
-    { role: 'Non-Striker',        x: -1.2,  y: 0, z: -9,    rotY: 0,         hasBat: true },
+    { role: 'Striker',            x: 0.4,   y: 0, z: 9,     rotY: Math.PI,      hasBat: true },
+    { role: 'Non-Striker',        x: -0.4,  y: 0, z: -9,    rotY: 0,            hasBat: true },
     { role: 'Umpire (Bowl End)',  x: -1.0,  y: 0, z: -11.5, rotY: 0 },
     { role: 'Umpire (Sq Leg)',    x: -14,   y: 0, z: 0,     rotY: Math.PI * 0.5 },
-    { role: 'Bowler',             x: 0,     y: 0, z: -14,   rotY: 0,         hasBall: true },
+    { role: 'Bowler',             x: 0,     y: 0, z: -14,   rotY: 0,            hasBall: true },
     { role: 'Keeper',             x: 0,     y: 0, z: 13,    rotY: Math.PI },
     { role: 'Slip',               x: 3,     y: 0, z: 14.5,  rotY: Math.PI },
     { role: 'Point',              x: 15,    y: 0, z: 6,     rotY: Math.PI * 0.75 },
@@ -53,7 +53,7 @@
   document.body.appendChild(renderer.domElement);
 
   // ─── LIGHTS ──────────────────────────────────────────────────
-  scene.add(new THREE.AmbientLight(0xffffff, 1.4));
+  scene.add(new THREE.AmbientLight(0xffffff, 1.5));
   const hemi = new THREE.HemisphereLight(0xffffff, 0x88aa88, 1.4);
   scene.add(hemi);
   const sun = new THREE.DirectionalLight(0xffffff, 1.0);
@@ -145,6 +145,8 @@
           if (typeof m.roughness === 'number') m.roughness = 0.85;
           if (typeof m.metalness === 'number') m.metalness = 0;
           m.side = THREE.DoubleSide;
+          m.transparent = false;
+          m.opacity = 1;
           m.needsUpdate = true;
         });
       }
@@ -168,7 +170,7 @@
   }
 
   /* ═══════════════════════════════════════════════════════════
-     PROCEDURAL EQUIPMENT (guaranteed to work)
+     PROCEDURAL EQUIPMENT
      ═══════════════════════════════════════════════════════════ */
   function makeBat(){
     const g = new THREE.Group();
@@ -186,7 +188,6 @@
   function makeBall(){
     const mat = new THREE.MeshStandardMaterial({ color: 0x991b1b, roughness: 0.55 });
     const ball = new THREE.Mesh(new THREE.SphereGeometry(0.036, 16, 16), mat);
-    // White seam stripe
     const seamMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
     const seam = new THREE.Mesh(new THREE.TorusGeometry(0.036, 0.004, 6, 20), seamMat);
     seam.rotation.y = Math.PI / 2;
@@ -213,59 +214,68 @@
   }
 
   /* ═══════════════════════════════════════════════════════════
-     SIGHT SCREEN — big white wall inside the ground
+     SIGHT SCREEN — beyond the boundary, thin frame
      ═══════════════════════════════════════════════════════════ */
-  function buildSightScreen(zPos, fieldY, facingSign){
-    const W = 20, H = 7, D = 0.5;
+  function buildSightScreen(zPos, fieldY){
+    const W = 22, H = 8, D = 0.6;
 
     const group = new THREE.Group();
 
-    // Main panel
+    // Main white panel
     const panel = new THREE.Mesh(
       new THREE.BoxGeometry(W, H, D),
-      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9 })
+      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95 })
     );
     panel.position.y = H / 2;
     group.add(panel);
 
-    // Black frame outline
-    const frameMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.6 });
-    const top = new THREE.Mesh(new THREE.BoxGeometry(W + 0.6, 0.4, D + 0.2), frameMat);
-    top.position.y = H + 0.2;
-    group.add(top);
-    const bottom = new THREE.Mesh(new THREE.BoxGeometry(W + 0.6, 0.4, D + 0.2), frameMat);
-    bottom.position.y = -0.2;
-    group.add(bottom);
-    [-W/2 - 0.3, W/2 + 0.3].forEach(function(x){
-      const side = new THREE.Mesh(new THREE.BoxGeometry(0.4, H + 0.6, D + 0.2), frameMat);
+    // Thin black outline (thin frame, not chunky)
+    const frameMat = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.7 });
+    // Top bar
+    const topBar = new THREE.Mesh(new THREE.BoxGeometry(W + 0.4, 0.25, D + 0.1), frameMat);
+    topBar.position.y = H + 0.12;
+    group.add(topBar);
+    // Bottom bar
+    const botBar = new THREE.Mesh(new THREE.BoxGeometry(W + 0.4, 0.25, D + 0.1), frameMat);
+    botBar.position.y = -0.12;
+    group.add(botBar);
+    // Left/right thin posts
+    [-W/2 - 0.2, W/2 + 0.2].forEach(function(x){
+      const side = new THREE.Mesh(new THREE.BoxGeometry(0.25, H + 0.4, D + 0.1), frameMat);
       side.position.set(x, H / 2, 0);
       group.add(side);
     });
 
+    // Support poles going into the ground
+    [-W/2 + 1.5, W/2 - 1.5].forEach(function(x){
+      const pole = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.15, 0.15, H + 1, 8),
+        frameMat
+      );
+      pole.position.set(x, (H + 1) / 2 - 0.5, 0);
+      group.add(pole);
+    });
+
     group.position.set(0, fieldY, zPos);
-    // Face inward (toward the pitch)
-    group.rotation.y = facingSign > 0 ? 0 : Math.PI;
     scene.add(group);
 
-    console.log('[SightScreen] at z=' + zPos + ' size ' + W + '×' + H);
+    console.log('[SightScreen] at z = ' + zPos + ', size ' + W + '×' + H);
   }
 
   /* ═══════════════════════════════════════════════════════════
-     REPLAY SCREEN — on the sides, in the stands
+     REPLAY SCREEN
      ═══════════════════════════════════════════════════════════ */
   function buildReplayScreen(x, z, rotY, fieldY){
     const W = 36, H = 20, D = 0.6;
 
     const group = new THREE.Group();
 
-    // Frame
     const frame = new THREE.Mesh(
-      new THREE.BoxGeometry(W + 2, H + 2, D),
+      new THREE.BoxGeometry(W + 1.5, H + 1.5, D),
       new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.7, metalness: 0.3 })
     );
     group.add(frame);
 
-    // Screen canvas
     const cvs = document.createElement('canvas');
     cvs.width = 1024; cvs.height = 576;
     const ctx = cvs.getContext('2d');
@@ -273,12 +283,10 @@
     ctx.fillStyle = '#0a0e1a';
     ctx.fillRect(0, 0, cvs.width, cvs.height);
 
-    // Red top/bottom stripes
     ctx.fillStyle = '#e10600';
     ctx.fillRect(0, 0, cvs.width, 10);
     ctx.fillRect(0, cvs.height - 10, cvs.width, 10);
 
-    // Diagonal grid
     ctx.strokeStyle = 'rgba(255,255,255,.05)';
     ctx.lineWidth = 1;
     for (let i = 0; i < cvs.width + cvs.height; i += 40){
@@ -288,17 +296,17 @@
     }
 
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 110px Arial, sans-serif';
+    ctx.font = 'bold 110px Arial';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('CRICMAX', cvs.width / 2, 200);
 
     ctx.fillStyle = '#00e676';
-    ctx.font = 'bold 80px Arial, sans-serif';
+    ctx.font = 'bold 80px Arial';
     ctx.fillText('REPLAY', cvs.width / 2, 330);
 
     ctx.fillStyle = '#7a8590';
-    ctx.font = 'bold 34px Arial, sans-serif';
+    ctx.font = 'bold 34px Arial';
     ctx.fillText('LIVE · MATCH VIEWER', cvs.width / 2, 440);
 
     const tex = new THREE.CanvasTexture(cvs);
@@ -309,14 +317,14 @@
     screen.position.z = D / 2 + 0.05;
     group.add(screen);
 
-    group.position.set(x, fieldY + H / 2 + 8, z);
+    group.position.set(x, fieldY + H / 2 + 10, z);
     group.rotation.y = rotY;
     scene.add(group);
 
     console.log('[ReplayScreen] at (' + x + ',' + z + ') rotY=' + rotY.toFixed(2));
   }
 
-  // ─── PLACE STADIUM ───────────────────────────────────────────
+  // ─── STADIUM ─────────────────────────────────────────────────
   let stadiumRadius = 100;
   let fieldY = 0;
 
@@ -350,61 +358,84 @@
     shuffle(valid);
     console.log('[Players] ' + valid.length + ' models → ' + FIELD_POSITIONS.length + ' roles');
 
+    const playerGroups = [];
+
     for (let i = 0; i < FIELD_POSITIONS.length; i++){
       const src = valid[i % valid.length];
       const pos = FIELD_POSITIONS[i];
 
-      // Group so we can attach accessories
       const group = new THREE.Group();
 
-      // Clone + autoFit
       const pm = src.clone(true);
       pm.position.set(0, 0, 0);
       pm.rotation.set(0, 0, 0);
       pm.scale.set(1, 1, 1);
 
+      // Log BEFORE scaling to see natural size
+      pm.updateMatrixWorld(true);
+      const rawBox = new THREE.Box3().setFromObject(pm);
+      const rawSize = new THREE.Vector3();
+      rawBox.getSize(rawSize);
+      const rawMax = Math.max(rawSize.x, rawSize.y, rawSize.z);
+
       const scale = autoFit(pm, PLAYER_SIZE);
       enableMaterials(pm);
       bottomToZero(pm);
 
-      // Log actual size after fitting
       const pbox = new THREE.Box3().setFromObject(pm);
       const psz = new THREE.Vector3();
       pbox.getSize(psz);
-      console.log('[Player ' + pos.role + '] scale=' + scale.toFixed(4) +
-                  ' size=' + psz.x.toFixed(2) + '×' + psz.y.toFixed(2) + '×' + psz.z.toFixed(2));
+      console.log('[Player ' + pos.role + '] rawMax=' + rawMax.toFixed(3) +
+                  ' scale=' + scale.toFixed(5) +
+                  ' final=' + psz.x.toFixed(2) + '×' + psz.y.toFixed(2) + '×' + psz.z.toFixed(2) +
+                  ' yPos=' + pm.position.y.toFixed(3));
 
       group.add(pm);
 
-      // Attach bat if batsman
+      // Attach bat
       if (pos.hasBat){
         const bat = makeBat();
-        // Batsman's local: +z is forward, +x is to their left
-        // Put bat in front-right of the player, at hand height
         bat.position.set(-0.35, 0.95, 0.25);
-        bat.rotation.x = -0.7;   // tilt down toward the pitch
+        bat.rotation.x = -0.7;
         bat.rotation.z = 0.15;
         group.add(bat);
       }
 
-      // Attach ball if bowler
+      // Attach ball
       if (pos.hasBall){
         const ball = makeBall();
         ball.position.set(0.35, 1.35, 0.20);
         group.add(ball);
       }
 
-      // Orientation
-      group.rotation.y = pos.rotY || 0;
+      // Debug marker — a bright red glowing sphere at feet
+      if (DEBUG_MARKERS){
+        const marker = new THREE.Mesh(
+          new THREE.SphereGeometry(0.35, 12, 12),
+          new THREE.MeshBasicMaterial({ color: 0xff0066 })
+        );
+        marker.position.set(0, 0.35, 0);
+        group.add(marker);
+      }
 
-      // Position
+      group.rotation.y = pos.rotY || 0;
       group.position.x = pos.x;
       group.position.z = pos.z;
       group.position.y = fieldY;
 
       scene.add(group);
+      playerGroups.push(group);
+
+      // Log world position of this player
+      group.updateMatrixWorld(true);
+      const worldPos = new THREE.Vector3();
+      group.getWorldPosition(worldPos);
+      console.log('  ↳ world pos: ' + worldPos.x.toFixed(1) + ', ' +
+                  worldPos.y.toFixed(2) + ', ' + worldPos.z.toFixed(1));
     }
-    console.log('[Players] placed');
+
+    window.__playerGroups = playerGroups;
+    console.log('[Players] placed ' + playerGroups.length + ' groups');
   }
 
   function setLoaderProgress(loaded, total){
@@ -417,7 +448,7 @@
   // ─── BOOT ────────────────────────────────────────────────────
   async function boot(){
     const tasks = [
-      { key: 'stadium',   url: STADIUM_FILE }
+      { key: 'stadium', url: STADIUM_FILE }
     ].concat(PLAYER_FILES.map(function(url, i){
       return { key: 'p' + (i + 1), url: url };
     }));
@@ -438,30 +469,29 @@
       return r ? r.model : null;
     };
 
-    // 1. Stadium
+    // Stadium
     placeStadium(pick('stadium'));
 
-    // 2. Sight screens — right at the boundary, behind each stumps end
-    const grassR = 35;  // grass radius in world units (approximate)
-    buildSightScreen( 30, fieldY, 1);   // behind striker (z = +30)
-    buildSightScreen(-30, fieldY, -1);  // behind non-striker (z = -30)
+    // Sight screens — beyond the grass boundary
+    // Grass is roughly 35m radius, so push screens to z = ±52
+    buildSightScreen( 52, fieldY);
+    buildSightScreen(-52, fieldY);
 
-    // 3. Replay screens on the two sides
-    buildReplayScreen( 70, 0, -Math.PI / 2, fieldY);
-    buildReplayScreen(-70, 0,  Math.PI / 2, fieldY);
+    // Replay screens on the sides (in the stands)
+    buildReplayScreen( 72, 0, -Math.PI / 2, fieldY);
+    buildReplayScreen(-72, 0,  Math.PI / 2, fieldY);
 
-    // 4. Procedural stumps at both ends
-    const stumpsA = makeStumps();
-    stumpsA.position.set(0, fieldY, 10);
-    scene.add(stumpsA);
+    // Stumps at both ends, aligned with pitch center (x = 0)
+    const stumpsStriker = makeStumps();
+    stumpsStriker.position.set(0, fieldY, 10);
+    scene.add(stumpsStriker);
 
-    const stumpsB = makeStumps();
-    stumpsB.position.set(0, fieldY, -10);
-    scene.add(stumpsB);
+    const stumpsNonStriker = makeStumps();
+    stumpsNonStriker.position.set(0, fieldY, -10);
+    scene.add(stumpsNonStriker);
+    console.log('[Stumps] placed at z = ±10, centered on x = 0');
 
-    console.log('[Stumps] placed at both ends');
-
-    // 5. Players
+    // Players
     const playerModels = PLAYER_FILES.map(function(_, i){
       return pick('p' + (i + 1));
     }).filter(function(m){ return m; });
