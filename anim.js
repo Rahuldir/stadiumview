@@ -1,11 +1,11 @@
 /* ══════════════════════════════════════════════════════════════
    StadiumView — Advanced cricket animation engine
-   • Batsman takes guard (bat taps, looks around)
+   • Batsman takes guard (looks around, taps bat twice)
    • Bowler marks run-up (walks to mark, sets feet)
    • Realistic run-up with arm swing
-   • Ball physics: gravity, bounce, spin
+   • Ball physics: gravity, bounce, spin, air drag
    • Bat-ball contact detection
-   • Ball trail on 4s and 6s
+   • Ball trail on 4s (cyan) and 6s (orange)
    • 6 flies out of ground, 4 rolls/bounces to boundary
    • 1/2/3 with running between wickets
    • Umpire signals, wicket celebration
@@ -21,8 +21,8 @@
   const AIR_DRAG      = 0.015;
   const GROUND_FRIC   = 2.4;
 
-  // ─── Field reference ─────────────────────────────────────────
-  const STRIKER_Z        = 8.6;
+  // ─── Field reference (must match stadium.js) ────────────────
+  const STRIKER_Z        =  8.6;
   const NON_STRIKER_Z    = -8.6;
   const BOWLER_START_Z   = -24;
   const BOWLER_RELEASE_Z = -11;
@@ -40,7 +40,7 @@
     const keeper     = players['Keeper'];
     const umpBowl    = players['Umpire (Bowl End)'];
     const strikerBat = accessories['Striker'] && accessories['Striker'].bat;
-    const bowlerBall = accessories['Bowler'] && accessories['Bowler'].ball;
+    const bowlerBall = accessories['Bowler']  && accessories['Bowler'].ball;
 
     if (!bowler || !striker || !strikerBat || !bowlerBall){
       console.warn('[Anim] Missing refs — disabled');
@@ -70,7 +70,7 @@
     };
 
     // ═══════════════════════════════════════════════════════════
-    //  FLIGHT BALL
+    //  FLIGHT BALL (world-space, cloned from bowler's ball)
     // ═══════════════════════════════════════════════════════════
     const flightBall = bowlerBall.clone(true);
     flightBall.traverse(function(c){
@@ -87,7 +87,7 @@
     // ─── Trail effect ────────────────────────────────────────
     const trailMaxPoints = 60;
     const trailPositions = new Float32Array(trailMaxPoints * 3);
-    const trailGeometry = new THREE.BufferGeometry();
+    const trailGeometry  = new THREE.BufferGeometry();
     trailGeometry.setAttribute('position', new THREE.BufferAttribute(trailPositions, 3));
     trailGeometry.setDrawRange(0, 0);
 
@@ -169,10 +169,12 @@
       } else {
         ball.vel.y -= GRAVITY * dt;
 
+        // Magnus effect (spin curve)
         const k = 0.00015;
         ball.vel.x += k * (ball.spinning.y * ball.vel.z - ball.spinning.z * ball.vel.y) * dt;
         ball.vel.z += k * (ball.spinning.x * ball.vel.y - ball.spinning.y * ball.vel.x) * dt;
 
+        // Air drag
         const drag = 1 - AIR_DRAG * dt;
         ball.vel.x *= drag;
         ball.vel.z *= drag;
@@ -181,6 +183,7 @@
         ball.pos.y += ball.vel.y * dt;
         ball.pos.z += ball.vel.z * dt;
 
+        // Ground bounce
         const groundY = fieldY + BALL_RADIUS;
         if (ball.pos.y < groundY){
           ball.pos.y = groundY;
@@ -211,13 +214,13 @@
     // ═══════════════════════════════════════════════════════════
     function launchDelivery(){
       const lengths = ['short', 'good', 'full'];
-      const lengthChoice = lengths[Math.floor(Math.random() * 3)];
+      const choice  = lengths[Math.floor(Math.random() * 3)];
       let pitchZ;
-      if (lengthChoice === 'short')      pitchZ = 4.5;
-      else if (lengthChoice === 'good')  pitchZ = 6.5;
-      else                                pitchZ = 8.0;
+      if (choice === 'short')      pitchZ = 4.5;
+      else if (choice === 'good')  pitchZ = 6.5;
+      else                          pitchZ = 8.0;
 
-      const releaseY = fieldY + 2.0;
+      const releaseY   = fieldY + 2.0;
       const releasePos = new THREE.Vector3(0.55, releaseY, BOWLER_RELEASE_Z);
 
       const t = 0.5;
@@ -236,11 +239,13 @@
         striker.position.x, fieldY + 0.7, striker.position.z
       );
 
+      // Wicket — ball goes into stumps
       if (outcome.wicket){
         launchBall(contactPos, new THREE.Vector3(0, 0.5, 10), { x: 0, y: 0, z: 0 });
         return;
       }
 
+      // Dot ball
       if (outcome.runs === 0){
         launchBall(contactPos, new THREE.Vector3(
           (Math.random() - 0.5) * 2, 1.5, -1
@@ -248,38 +253,44 @@
         return;
       }
 
+      // SIX — high arc, flies out of ground
       if (outcome.runs === 6){
         const angle = Math.random() * Math.PI * 2;
-        const dist = 55;
-        const peak = 20 + Math.random() * 10;
-        const vy = Math.sqrt(2 * GRAVITY * peak);
+        const dist  = 55;
+        const peak  = 20 + Math.random() * 10;
+        const vy    = Math.sqrt(2 * GRAVITY * peak);
         const totalTime = vy / GRAVITY * 2;
         const speed = dist / totalTime;
         launchBall(contactPos, new THREE.Vector3(
-          Math.cos(angle) * speed, vy, Math.sin(angle) * speed
+          Math.cos(angle) * speed,
+          vy,
+          Math.sin(angle) * speed
         ), { x: 30, y: 0, z: 0 });
         trailStart(0xff6d00);
         return;
       }
 
+      // FOUR — grounded or one bounce to the rope
       if (outcome.runs === 4){
-        const angle = Math.random() * Math.PI * 2;
+        const angle    = Math.random() * Math.PI * 2;
         const grounded = Math.random() < 0.5;
         let vy, speed;
         if (grounded){ vy = 2.2; speed = 26; }
-        else         { vy = 8;   speed = 22; }
+        else         { vy = 8.0; speed = 22; }
         launchBall(contactPos, new THREE.Vector3(
-          Math.cos(angle) * speed, vy, Math.sin(angle) * speed
+          Math.cos(angle) * speed,
+          vy,
+          Math.sin(angle) * speed
         ), { x: 18, y: 0, z: 0 });
         trailStart(0x22d3ee);
         return;
       }
 
-      // 1 / 2 / 3
+      // 1 / 2 / 3 — hit to a fielder in the ring
       const angle = Math.random() * Math.PI * 2;
-      const dist = 12 + outcome.runs * 6;
-      const peak = 2 + outcome.runs * 0.5;
-      const vy = Math.sqrt(2 * GRAVITY * peak);
+      const dist  = 12 + outcome.runs * 6;
+      const peak  = 2 + outcome.runs * 0.5;
+      const vy    = Math.sqrt(2 * GRAVITY * peak);
       const totalTime = vy / GRAVITY * 2 + 0.4;
       launchBall(contactPos, new THREE.Vector3(
         Math.cos(angle) * dist / totalTime,
@@ -289,7 +300,7 @@
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  BAT-BALL CONTACT
+    //  BAT-BALL CONTACT DETECTION
     // ═══════════════════════════════════════════════════════════
     const batWorldPos = new THREE.Vector3();
     function checkBatContact(){
@@ -333,13 +344,13 @@
       WALK_BACK:  'walk_back'
     };
 
-    let phase = PHASE.IDLE;
+    let phase      = PHASE.IDLE;
     let phaseStart = performance.now();
-    let phaseData = {};
-    let outcome = null;
+    let phaseData  = {};
+    let outcome    = null;
     let customOutcome = null;
-    let ballCount = 0;
-    let paused = false;
+    let ballCount  = 0;
+    let paused     = false;
 
     const DURATIONS = {
       idle:       1200,
@@ -361,7 +372,7 @@
       console.log('[Anim] → ' + p);
     }
 
-    // Easing
+    // ─── Easing ─────────────────────────────────────────────
     function easeInOut(t){ return t < 0.5 ? 2*t*t : 1 - Math.pow(-2*t+2, 2) / 2; }
     function easeOut(t){ return 1 - Math.pow(1-t, 3); }
     function lerp(a, b, t){ return a + (b - a) * t; }
@@ -371,7 +382,7 @@
     // ═══════════════════════════════════════════════════════════
     function animateIdle(now){
       striker.position.x = home['Striker'].pos.x + Math.sin(now * 0.0009) * 0.015;
-      striker.position.z = home['Striker'].pos.z + Math.cos(now * 0.001) * 0.015;
+      striker.position.z = home['Striker'].pos.z + Math.cos(now * 0.001)  * 0.015;
       striker.rotation.y = home['Striker'].rotY;
 
       if (nonStriker){
@@ -379,7 +390,7 @@
         nonStriker.position.z = home['Non-Striker'].pos.z + Math.cos(now * 0.0007 + 1) * 0.02;
       }
 
-      // Fielders return to their real positions (no drift)
+      // Fielders return to home (no drift)
       fielders.forEach(function(f){
         const h = home[f.name] ? home[f.name].pos : f.position;
         f.position.x += (h.x - f.position.x) * 0.05;
@@ -392,7 +403,7 @@
     //  BATSMAN TAKES GUARD
     // ═══════════════════════════════════════════════════════════
     function animateGuard(p){
-      // Look around
+      // Look around at fielders
       const look = Math.sin(p * Math.PI * 2) * 0.18;
       striker.rotation.y = home['Striker'].rotY + look;
 
@@ -402,6 +413,7 @@
       const tap2 = (p > 0.55 && p < 0.70)
         ? Math.max(0, Math.sin((p - 0.55) * Math.PI / 0.15)) : 0;
       const tap = (tap1 + tap2) * 0.22;
+
       strikerBat.rotation.x = batRest.x + tap;
       strikerBat.rotation.z = batRest.z - tap * 0.4;
 
@@ -417,6 +429,7 @@
     // ═══════════════════════════════════════════════════════════
     function animateMarkRunup(p){
       if (p < 0.55){
+        // Walk from home toward the top of the run-up
         const q = easeInOut(p / 0.55);
         bowler.position.x = lerp(home['Bowler'].pos.x, 1.2, q);
         bowler.position.z = lerp(home['Bowler'].pos.z, BOWLER_START_Z, q);
@@ -424,6 +437,7 @@
         bowler.rotation.x = 0.05;
         bowler.rotation.y = lerp(home['Bowler'].rotY, Math.PI * 0.05, q);
       } else {
+        // Standing at the mark, tapping feet
         const q = (p - 0.55) / 0.45;
         const footTap = Math.sin(q * Math.PI * 6) * 0.04;
         bowler.position.x = 1.2 + footTap;
@@ -436,6 +450,7 @@
         }
       }
 
+      // Keeper starts crouching
       if (keeper){
         const q = Math.min(1, Math.max(0, (p - 0.55) / 0.45));
         keeper.rotation.x = 0.10 + q * 0.15;
@@ -452,6 +467,7 @@
       bowler.position.y = fieldY + Math.abs(Math.sin(p * Math.PI * 8)) * 0.1;
       bowler.rotation.x = 0.15 * e;
 
+      // Arm swing — try to find arm subgroups and rotate them
       const armSwing = Math.sin(p * Math.PI * 6) * 0.7;
       bowler.children.forEach(function(child){
         if (child.isGroup){
@@ -467,6 +483,7 @@
         }
       });
 
+      // Keeper crouch
       if (keeper && p > 0.4){
         keeper.rotation.x = 0.25 * ((p - 0.4) / 0.6);
       }
@@ -528,14 +545,14 @@
       nonStriker.position.z = nZ;
 
       const cycle = Math.sin(progress * Math.PI * 8);
-      striker.position.y = fieldY + Math.abs(cycle) * 0.1;
+      striker.position.y    = fieldY + Math.abs(cycle) * 0.1;
       nonStriker.position.y = fieldY + Math.abs(cycle) * 0.1;
 
       striker.rotation.x = 0.15;
       nonStriker.rotation.x = 0.15;
       strikerBat.rotation.x = batRest.x + 0.35;
 
-      striker.rotation.y = goingForward ? 0 : Math.PI;
+      striker.rotation.y    = goingForward ? 0 : Math.PI;
       nonStriker.rotation.y = goingForward ? Math.PI : 0;
     }
 
@@ -562,9 +579,10 @@
     // ═══════════════════════════════════════════════════════════
     function animateSignal(p, type){
       if (!umpBowl) return;
-      const up = Math.min(1, p * 4);
+      const up   = Math.min(1, p * 4);
       const down = Math.max(0, 1 - (p - 0.65) / 0.35);
-      const a = Math.min(up, down);
+      const a    = Math.min(up, down);
+
       if (type === 'four'){
         umpBowl.rotation.y = lerp(0, -0.9, easeInOut(a));
       } else if (type === 'six'){
@@ -595,6 +613,7 @@
       const dx = ball.pos.x - cf.position.x;
       const dz = ball.pos.z - cf.position.z;
       const dist = Math.hypot(dx, dz);
+
       if (dist > 0.5){
         const speed = 6 * dt;
         cf.position.x += (dx / dist) * Math.min(speed, dist);
@@ -710,6 +729,7 @@
 
       const elapsed = now - phaseStart;
 
+      // Ball physics + trail
       if (ball.active){
         updateBall(dt);
         if (trail.visible) trailPush(ball.pos);
@@ -757,7 +777,7 @@
 
         case PHASE.INBOUND: {
           const ballPastBat = ball.pos.z > striker.position.z + 0.5;
-          const batContact = checkBatContact();
+          const batContact  = checkBatContact();
           if (batContact || ballPastBat || elapsed > DURATIONS.inbound){
             ball.active = false;
             flightBall.visible = false;
@@ -789,22 +809,27 @@
               cameraShake(1.5, 500);
               if (SV.stumpsStriker) SV.stumpsStriker.rotation.x = -0.7;
             } else if (outcome.runs === 6){
-              showBanner('SIX!', '#ff6d00'); flash('#ff6d00', 350); cameraShake(2.0, 600);
+              showBanner('SIX!', '#ff6d00');
+              flash('#ff6d00', 350);
+              cameraShake(2.0, 600);
             } else if (outcome.runs === 4){
-              showBanner('FOUR!', '#22d3ee'); flash('#22d3ee', 300); cameraShake(1.2, 400);
+              showBanner('FOUR!', '#22d3ee');
+              flash('#22d3ee', 300);
+              cameraShake(1.2, 400);
             } else if (outcome.runs > 0){
               showBanner(outcome.runs + ' RUN' + (outcome.runs > 1 ? 'S' : ''), '#00e676');
             }
           }
 
+          // Chase for 1/2/3
           if (outcome.runs > 0 && outcome.runs < 4 && !phaseData._chaserPicked){
             phaseData._chaserPicked = true;
             pickChaser(ball.pos.x, ball.pos.z);
           }
 
-          const ballStopped = !ball.active;
+          const ballStopped     = !ball.active;
           const crossedBoundary = Math.hypot(ball.pos.x, ball.pos.z) > BOUNDARY_R;
-          const ballFlew = outcome.runs === 6 && elapsed > 3500;
+          const ballFlew        = outcome.runs === 6 && elapsed > 3500;
 
           if (ballStopped || crossedBoundary || ballFlew){
             trailStop();
@@ -819,8 +844,8 @@
 
         case PHASE.RUNNING: {
           const runs = phaseData.runs;
-          const dur = runs * 1200;
-          const p = Math.min(1, elapsed / dur);
+          const dur  = runs * 1200;
+          const p    = Math.min(1, elapsed / dur);
           animateRunning(runs, p * runs);
           if (p >= 1){
             settleAfterRuns(runs);
@@ -870,6 +895,7 @@
     //  KICKOFF
     // ═══════════════════════════════════════════════════════════
     console.log('[Anim] ✅ Advanced engine ready');
+    console.log('[Anim] Trail: cyan on 4, orange on 6, ball flies out on 6');
     requestAnimationFrame(tick);
 
     window.StadiumAnim = {
@@ -896,13 +922,16 @@
         };
       },
       currentPhase: function(){ return phase; },
-      pause: function(){ paused = true; },
+      pause:  function(){ paused = true;  },
       resume: function(){ paused = false; }
     };
   }
 
+  // Wait for stadium to be fully booted
   const wait = setInterval(function(){
-    if (window.StadiumView && window.StadiumView.players && window.StadiumView.players['Bowler']){
+    if (window.StadiumView &&
+        window.StadiumView.players &&
+        window.StadiumView.players['Bowler']){
       clearInterval(wait);
       setTimeout(boot, 700);
     }
