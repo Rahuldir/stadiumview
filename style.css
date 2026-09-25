@@ -1,0 +1,167 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #050a12;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: #fff;
+  -webkit-tap-highlight-color: transparent;
+}
+
+canvas { display: block; }
+
+/* ═══ HUD ═══ */
+#hud {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  padding: 12px 16px;
+  background: rgba(13,17,23,.92);
+  border: 1px solid rgba(0,230,118,.35);
+  border-left: 3px solid #00e676;
+  border-radius: 10px;
+  backdrop-filter: blur(14px);
+  z-index: 100;
+  max-width: 260px;
+  line-height: 1.5;
+  pointer-events: none;
+}
+.hud-title {
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  color: #00e676;
+  margin-bottom: 4px;
+}
+.hud-hint {
+  font-size: 10.5px;
+  color: #7a8590;
+  font-weight: 600;
+  letter-spacing: .3px;
+}
+.model-list {
+  margin-top: 8px;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+.model-list .row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+.model-list .ok    { color: #00e676; }
+.model-list .fail  { color: #ef4444; }
+.model-list .wait  { color: #fbbf24; }
+
+/* ═══ FPS ═══ */
+#fps {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  padding: 6px 10px;
+  background: rgba(13,17,23,.9);
+  border: 1px solid rgba(34,211,238,.4);
+  border-radius: 8px;
+  color: #22d3ee;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 1.4px;
+  z-index: 100;
+}
+
+/* ═══ Controls ═══ */
+#controls {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 4px;
+  padding: 5px;
+  background: rgba(13,17,23,.92);
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 10px;
+  backdrop-filter: blur(14px);
+  z-index: 100;
+  flex-wrap: wrap;
+  max-width: calc(100vw - 24px);
+  justify-content: center;
+}
+#controls .divider {
+  width: 1px;
+  align-self: stretch;
+  background: rgba(255,255,255,.12);
+  margin: 4px 4px;
+}
+#controls button {
+  padding: 8px 14px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: #c5cdd8;
+  font-family: inherit;
+  font-size: 10.5px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all .15s;
+  white-space: nowrap;
+}
+#controls button:hover { color: #fff; background: rgba(255,255,255,.06); }
+#controls button.on {
+  background: linear-gradient(135deg, #00e676, #22d3ee);
+  color: #0a0e1a;
+}
+
+/* ═══ Loader ═══ */
+#loader {
+  position: fixed;
+  inset: 0;
+  background: #050a12;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  z-index: 9999;
+  transition: opacity .5s ease;
+}
+#loader.hide { opacity: 0; pointer-events: none; }
+.spinner {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 3px solid rgba(0,230,118,.15);
+  border-top-color: #00e676;
+  animation: spin .9s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.loader-text {
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: #00e676;
+}
+.loader-sub {
+  font-size: 11px;
+  color: #7a8590;
+  font-family: ui-monospace, monospace;
+  letter-spacing: 1.5px;
+}
+
+/* ═══ Mobile tweaks ═══ */
+@media (max-width: 600px) {
+  #hud { top: 10px; left: 10px; padding: 9px 12px; max-width: 180px; }
+  .hud-title { font-size: 10px; }
+  .hud-hint  { font-size: 9px; }
+  .model-list { font-size: 9.5px; }
+  #fps { top: 10px; right: 10px; font-size: 10px; padding: 5px 8px; }
+  #controls { bottom: 12px; gap: 2px; padding: 4px; }
+  #controls button { padding: 6px 9px; font-size: 9.5px; }
+}
