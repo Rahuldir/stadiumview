@@ -1,11 +1,14 @@
 /* ══════════════════════════════════════════════════════════════
-   Player kinematics — works with any Mixamo / Blender / custom rig
+   Player kinematics — bat & ball as children of the hand bone
+   • Bat moves with the hand automatically
+   • Ball moves with the hand automatically
+   • Walk cycle drives the legs
    Exposes: window.PlayerControl
    ══════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
 
-  console.log('%c[players.js] start', 'color:#00e676;font-weight:bold');
+  console.log('%c[players.js] start · v6', 'color:#00e676;font-weight:bold');
 
   const wait = setInterval(() => {
     const P = window.StadiumView && window.StadiumView.players;
@@ -20,9 +23,8 @@
     const accessories = SV.accessories || {};
     const roles       = Object.keys(raw);
     const players     = {};
-    const AX          = new THREE.Vector3(1,0,0);
-    const AY          = new THREE.Vector3(0,1,0);
-    const AZ          = new THREE.Vector3(0,0,1);
+    const AX = new THREE.Vector3(1,0,0);
+    const AY = new THREE.Vector3(0,1,0);
 
     // ─── Bone finder ────────────────────────────────────────
     function findBone(group, patterns){
@@ -36,29 +38,24 @@
       return found;
     }
 
-    // ═══════════════════════════════════════════════════════
-    //  EXPANDED BONE MAP — handles Mixamo, Blender, Unity, custom
-    // ═══════════════════════════════════════════════════════
     const BONE_MAP = [
       { key:'hips',      patterns:['hips','pelvis','root'] },
       { key:'spine',     patterns:['spine','spine1'] },
       { key:'chest',     patterns:['chest','spine2','upperchest'] },
       { key:'neck',      patterns:['neck'] },
       { key:'head',      patterns:['head'] },
-
-      { key:'lUpperArm', patterns:['leftupperarm','leftarm','lupperarm','upperarml','upperarmleft','leftshoulder','lshoulder','shoulderl'] },
-      { key:'rUpperArm', patterns:['rightupperarm','rightarm','rupperarm','upperarmr','upperarmright','rightshoulder','rshoulder','shoulderr'] },
-      { key:'lForeArm',  patterns:['leftforearm','leftlowerarm','lforearm','forearml','forearmleft','lowerarmleft'] },
-      { key:'rForeArm',  patterns:['rightforearm','rightlowerarm','rforearm','forearmr','forearmright','lowerarmright'] },
-      { key:'lHand',     patterns:['lefthand','lhand','handl','handleft'] },
-      { key:'rHand',     patterns:['righthand','rhand','handr','handright'] },
-
-      { key:'lThigh',    patterns:['leftupleg','leftthigh','lthigh','thighl','upperlegleft','uplegleft'] },
-      { key:'rThigh',    patterns:['rightupleg','rightthigh','rthigh','thighr','upperlegright','uplegright'] },
-      { key:'lShin',     patterns:['leftleg','leftshin','llowerleg','lowerlegleft','shinleft','calfleft'] },
-      { key:'rShin',     patterns:['rightleg','rightshin','rlowerleg','lowerlegright','shinright','calfright'] },
-      { key:'lFoot',     patterns:['leftfoot','lfoot','footl','footleft'] },
-      { key:'rFoot',     patterns:['rightfoot','rfoot','footr','footright'] }
+      { key:'lUpperArm', patterns:['leftupperarm','leftarm','lupperarm','upperarml','upperarmleft','leftshoulder','lshoulder'] },
+      { key:'rUpperArm', patterns:['rightupperarm','rightarm','rupperarm','upperarmr','upperarmright','rightshoulder','rshoulder'] },
+      { key:'lForeArm',  patterns:['leftforearm','leftlowerarm','lforearm','forearml'] },
+      { key:'rForeArm',  patterns:['rightforearm','rightlowerarm','rforearm','forearmr'] },
+      { key:'lHand',     patterns:['lefthand','lhand','handl'] },
+      { key:'rHand',     patterns:['righthand','rhand','handr'] },
+      { key:'lThigh',    patterns:['leftupleg','leftthigh','lthigh','thighl'] },
+      { key:'rThigh',    patterns:['rightupleg','rightthigh','rthigh','thighr'] },
+      { key:'lShin',     patterns:['leftleg','leftshin','llowerleg','shinleft','calfleft'] },
+      { key:'rShin',     patterns:['rightleg','rightshin','rlowerleg','shinright','calfright'] },
+      { key:'lFoot',     patterns:['leftfoot','lfoot','footl'] },
+      { key:'rFoot',     patterns:['rightfoot','rfoot','footr'] }
     ];
 
     // ─── Bake arms straight down ────────────────────────────
@@ -81,7 +78,7 @@
       if (dir.lengthSq() < 1e-8) return false;
       dir.normalize();
       const wrot = new THREE.Quaternion().setFromUnitVectors(dir, _targetDown);
-      const pq   = new THREE.Quaternion();
+      const pq = new THREE.Quaternion();
       if (bone.parent) bone.parent.getWorldQuaternion(pq);
       const newQ = pq.clone().invert()
         .multiply(wrot)
@@ -91,17 +88,6 @@
       bone.updateMatrixWorld(true);
       return true;
     }
-
-    // ─── Diagnostic: dump bone names for the FIRST player ──
-    (function dumpBones(){
-      const first = raw[roles[0]];
-      if (!first) return;
-      const names = [];
-      first.traverse(c => { if (c.isBone || c.type === 'Bone') names.push(c.name); });
-      console.log('%c[players.js] BONE NAMES in rig (' + names.length + '):',
-                  'color:#22d3ee;font-weight:bold');
-      console.log(names.join('\n'));
-    })();
 
     // ─── Setup each player ──────────────────────────────────
     roles.forEach(role => {
@@ -113,7 +99,7 @@
       if (bones.lUpperArm) pointBoneDown(bones.lUpperArm);
       if (bones.rUpperArm) pointBoneDown(bones.rUpperArm);
 
-      // Cache rest pose AFTER the arms-down bake
+      // Cache rest pose AFTER arms-down bake
       const rest = {};
       group.traverse(c => {
         if (c.isBone || c.type === 'Bone') rest[c.uuid] = c.quaternion.clone();
@@ -122,12 +108,45 @@
       const bat  = accessories[role] && accessories[role].bat;
       const ball = accessories[role] && accessories[role].ball;
 
-      // Compute bat handle-offset in bat-local Y
-      let batHandleOffset = 0;
-      if (bat){
+      // ═══════════════════════════════════════════════════════
+      //  BAT → attach as CHILD of rHand bone
+      // ═══════════════════════════════════════════════════════
+      if (bat && bones.rHand){
+        if (bat.parent) bat.parent.remove(bat);
+
+        bat.position.set(0, 0, 0);
+        bat.rotation.set(0, 0, 0);
+        bat.updateMatrixWorld(true);
+
+        // Scale bat to 0.96 m length
         const bb = new THREE.Box3().setFromObject(bat);
         const sz = new THREE.Vector3(); bb.getSize(sz);
-        batHandleOffset = sz.y * 0.5;   // half bat length → grip is halfway down
+        if (sz.y > 0){
+          const s = 0.96 / sz.y;
+          bat.scale.multiplyScalar(s);
+          bat.updateMatrixWorld(true);
+        }
+
+        // Shift so the bottom of the bat sits at the hand origin
+        const bb2 = new THREE.Box3().setFromObject(bat);
+        bat.position.y -= bb2.min.y;
+
+        // Rotate so blade hangs down from grip
+        bat.rotation.set(Math.PI, 0, 0);
+
+        // Attach to hand
+        bones.rHand.add(bat);
+        bat.updateMatrixWorld(true);
+      }
+
+      // ═══════════════════════════════════════════════════════
+      //  BALL → attach as CHILD of rHand bone
+      // ═══════════════════════════════════════════════════════
+      if (ball && bones.rHand){
+        if (ball.parent) ball.parent.remove(ball);
+        ball.position.set(0, 0.05, 0.05);
+        bones.rHand.add(ball);
+        ball.updateMatrixWorld(true);
       }
 
       players[role] = {
@@ -142,11 +161,8 @@
         lastZ: group.position.z,
         phase: 0,
         speed: 0,
-        bat, ball, batHandleOffset
+        bat, ball
       };
-
-      // Initial attach
-      lockAccessories(players[role]);
     });
 
     console.log('[players.js] ' + Object.keys(players).length + ' ready');
@@ -171,7 +187,7 @@
 
       p.phase += dt * (1.5 + Math.min(2.5, p.speed) * 1.5) * Math.PI * 2;
       const cyc = p.phase;
-      const s   = Math.min(1, p.speed / 3.5);
+      const s = Math.min(1, p.speed / 3.5);
       const stride = 0.55 + s * 0.60;
 
       // Legs
@@ -182,7 +198,7 @@
       applyRot(p.bones.lFoot,  AX, -Math.cos(cyc) * stride * 0.5);
       applyRot(p.bones.rFoot,  AX,  Math.cos(cyc) * stride * 0.5);
 
-      // Arms counter-swing (skip for striker/non-striker/bowler)
+      // Arms counter-swing (skip for Striker/Non-Striker/Bowler — anim.js controls those)
       const isBat = (p.role === 'Striker' || p.role === 'Non-Striker' || p.role === 'Bowler');
       if (!isBat){
         applyRot(p.bones.lUpperArm, AX,  Math.sin(cyc) * stride * 0.8);
@@ -191,6 +207,7 @@
         applyRot(p.bones.rForeArm,  AX, -Math.abs(Math.sin(cyc)) * 0.4);
       }
 
+      // Hips counter-rotation
       applyRot(p.bones.hips, AY, Math.sin(cyc) * 0.10 * (0.5 + s * 0.5));
 
       return true;
@@ -204,38 +221,6 @@
       });
     }
 
-    // ─── Bat / ball attachment ──────────────────────────────
-    //  The bat's origin is assumed to be at the HANDLE TOP.
-    //  We place it so the origin sits at the hand, then rotate
-    //  so the blade hangs naturally downward.
-    function lockAccessories(p){
-      if (p.bat && p.bones.rHand){
-        p.bones.rHand.updateWorldMatrix(true, false);
-        const hp = new THREE.Vector3();
-        const hq = new THREE.Quaternion();
-        p.bones.rHand.getWorldPosition(hp);
-        p.bones.rHand.getWorldQuaternion(hq);
-
-        p.bat.position.copy(hp);
-        p.bat.quaternion.copy(hq);
-
-        // Rotate bat so blade points forward/down from the grip
-        p.bat.rotateX(Math.PI * 0.5);   // handle → hand, blade → forward
-
-        // If the bat's pivot is at its CENTER, shift so the handle
-        // lands in the palm instead of the middle of the blade.
-        const off = new THREE.Vector3(0, p.batHandleOffset, 0)
-          .applyQuaternion(p.bat.quaternion);
-        p.bat.position.sub(off);
-      }
-      if (p.ball && p.bones.rHand){
-        p.bones.rHand.updateWorldMatrix(true, false);
-        const hp = new THREE.Vector3();
-        p.bones.rHand.getWorldPosition(hp);
-        p.ball.position.copy(hp);
-      }
-    }
-
     // ─── Main loop ──────────────────────────────────────────
     let last = performance.now();
     function tick(now){
@@ -247,7 +232,6 @@
         const p = players[r];
         resetRest(p);
         updateWalk(p, dt);
-        lockAccessories(p);
       });
     }
     requestAnimationFrame(tick);
@@ -297,6 +281,7 @@
       }
     })();
 
+    // ─── Public API ─────────────────────────────────────────
     window.PlayerControl = {
       players,
       roles,
@@ -309,7 +294,6 @@
           p.group.rotation.y = p.home.rotY;
         });
       },
-      // Debug helper
       dumpBones: (role) => {
         const p = players[role || roles[0]];
         const names = [];
