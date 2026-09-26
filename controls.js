@@ -123,7 +123,7 @@
       if (renderer) renderer.toneMappingExposure = 1.2;
     } else {
       if (ambient) ambient.intensity = 0.25;
-      if (hemi)    hem i.intensity   = 0.20;
+      if (hemi)    hemi.intensity   = 0.20;
       if (sun)     sun.intensity     = 0;
       if (SV && SV.setFloodlights) SV.setFloodlights(1);
       if (renderer) renderer.toneMappingExposure = 1.1;
