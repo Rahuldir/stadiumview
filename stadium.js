@@ -15,7 +15,7 @@
 
   const FILES = {
     stadium: 'models/stadium.glb',
-    player:  'models/newplayer.glb',   // ← your new player model
+    player:  'models/newplayer.glb',
     bat:     'models/bat.glb',
     stump:   'models/stump.glb'
   };
@@ -67,16 +67,16 @@
   renderer.setSize(innerWidth, innerHeight);
   renderer.shadowMap.enabled = false;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.0;
+  renderer.toneMappingExposure = 1.4;   // ← brightened from 1.0
   document.body.appendChild(renderer.domElement);
 
-  // ─── Lights ───────────────────────────────────────────────
-  const ambient = new THREE.AmbientLight(0xffffff, 0.85);
+  // ─── Lights (brightened) ──────────────────────────────────
+  const ambient = new THREE.AmbientLight(0xffffff, 1.6);
   scene.add(ambient);
-  const hemi = new THREE.HemisphereLight(0xffffff, 0x88aa88, 0.55);
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x88aa88, 1.0);
   scene.add(hemi);
-  const sun = new THREE.DirectionalLight(0xffffff, 1.4);
-  sun.position.set(90, 200, 90);
+  const sun = new THREE.DirectionalLight(0xffffff, 2.2);
+  sun.position.set(60, 200, 40);
   scene.add(sun);
 
   // ═══════════════════════════════════════════════════════════
@@ -130,7 +130,8 @@
           }
         },
         err => {
-          console.error('[FAILED]', key, err && err.message ? err.message : err);
+          console.error('[FAILED]', key,
+            err && err.message ? err.message : err);
           tickProgress();
           resolve(null);
         }
@@ -148,7 +149,7 @@
     obj.scale.setScalar(s);
     obj.updateMatrixWorld(true);
     box = new THREE.Box3().setFromObject(obj);
-    obj.position.y -= box.min.y;      // lift so bottom is at y=0
+    obj.position.y -= box.min.y;
     obj.updateMatrixWorld(true);
     return s;
   }
@@ -178,6 +179,7 @@
         m.transparent = false;
         m.opacity = 1;
         m.depthWrite = true;
+        m.vertexColors = false;
         if (typeof m.roughness === 'number') m.roughness = 0.8;
         if (typeof m.metalness === 'number') m.metalness = 0;
         if (m.emissive) m.emissive.setHex(0x000000);
@@ -186,7 +188,7 @@
     });
   }
 
-  // ─── Field level probe (accepts 0) ────────────────────────
+  // ─── Field level probe ────────────────────────────────────
   let fieldY = 0;
   let stadiumModel = null;
 
@@ -278,7 +280,7 @@
     });
 
     // ═══════════════════════════════════════════════════════
-    //  STUMPS — fixed Y so they sit on the ground
+    //  STUMPS
     // ═══════════════════════════════════════════════════════
     function placeStumps(z){
       if (!stumpGLB){
@@ -299,13 +301,10 @@
 
       const g = THREE.SkeletonUtils.clone(stumpGLB) || stumpGLB.clone(true);
       makeStandard(g);
-      scaleToHeight(g, STUMPS_HEIGHT);   // lift so bottom is at y=0
-
-      // ✅ Set X/Z freely, ADD fieldY on top of the lift
+      scaleToHeight(g, STUMPS_HEIGHT);
       g.position.x = 0;
       g.position.z = z;
       g.position.y += fieldY;
-
       scene.add(g);
       return g;
     }
@@ -318,44 +317,40 @@
     const playerRefs    = {};
     const accessoryRefs = {};
 
+    let usedFallback = false;
+
     ROLES.forEach(r => {
       const group = new THREE.Group();
       group.name = 'PLAYER_' + r.role.replace(/[^a-z0-9]/gi, '_');
       group.userData.role = r.role;
 
+      let model = null;
+
       if (playerGLB){
-        let model;
-        if (THREE.SkeletonUtils && THREE.SkeletonUtils.clone){
-          model = THREE.SkeletonUtils.clone(playerGLB);
-        } else {
-          model = playerGLB.clone(true);
+        try {
+          model = THREE.SkeletonUtils && THREE.SkeletonUtils.clone
+            ? THREE.SkeletonUtils.clone(playerGLB)
+            : playerGLB.clone(true);
+          makeStandard(model);
+          scaleToHeight(model, PLAYER_HEIGHT);
+        } catch(e){
+          console.warn('[clone failed for', r.role, ']', e.message);
+          model = null;
         }
-        makeStandard(model);
-        scaleToHeight(model, PLAYER_HEIGHT);
-        group.add(model);
-      } else {
-        // Humanoid fallback (so it doesn't look like a pill)
-        const skin = new THREE.MeshStandardMaterial({ color: 0x004BA0, roughness: 0.7 });
-        const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.20, 0.55, 4, 8), skin);
-        torso.position.y = 1.20;
-        const head  = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 12), skin);
-        head.position.y = 1.68;
-        const lLeg  = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.55, 4, 6), skin);
-        lLeg.position.set(-0.10, 0.45, 0);
-        const rLeg  = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.55, 4, 6), skin);
-        rLeg.position.set( 0.10, 0.45, 0);
-        const lArm  = new THREE.Mesh(new THREE.CapsuleGeometry(0.06, 0.45, 4, 6), skin);
-        lArm.position.set(-0.28, 1.20, 0);
-        const rArm  = new THREE.Mesh(new THREE.CapsuleGeometry(0.06, 0.45, 4, 6), skin);
-        rArm.position.set( 0.28, 1.20, 0);
-        group.add(torso, head, lLeg, rLeg, lArm, rArm);
       }
 
+      if (!model){
+        model = createFallbackPlayer();
+        usedFallback = true;
+      }
+
+      group.add(model);
       group.position.set(r.x, fieldY, r.z);
       group.rotation.y = r.rotY || 0;
       scene.add(group);
       playerRefs[r.role] = group;
 
+      // Bat
       if (r.bat && batGLB){
         const bat = THREE.SkeletonUtils
           ? THREE.SkeletonUtils.clone(batGLB)
@@ -368,6 +363,7 @@
         accessoryRefs[r.role].bat = bat;
       }
 
+      // Ball
       if (r.ball){
         const ball = new THREE.Mesh(
           new THREE.SphereGeometry(0.036, 12, 12),
@@ -379,7 +375,8 @@
       }
     });
 
-    console.log('[players spawned]', Object.keys(playerRefs).length);
+    console.log('[players spawned]', Object.keys(playerRefs).length,
+                usedFallback ? '(using articulated fallback)' : '(real model)');
 
     // ── Public API ──────────────────────────────────────────
     window.StadiumView = {
@@ -393,6 +390,7 @@
       stumpsBowler,
       BOUNDARY_RADIUS,
       floodLights,
+      usedFallback,
       setFloodlights(v){ floodLights.forEach(f => f.setGlow(v)); }
     };
 
@@ -400,14 +398,82 @@
                 ' · players=' + Object.keys(playerRefs).length);
   }
 
-  // ─── Resize ─────────────────────────────────────────────────
+  // ─── Articulated fallback human ──────────────────────────
+  function createFallbackPlayer(){
+    const root = new THREE.Group();
+    const SKIN  = new THREE.MeshStandardMaterial({ color: 0xd9a87c, roughness: 0.85 });
+    const SHIRT = new THREE.MeshStandardMaterial({ color: 0x1a4fa0, roughness: 0.7 });
+    const PANT  = new THREE.MeshStandardMaterial({ color: 0xf3f4f6, roughness: 0.8 });
+    const SHOE  = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.9 });
+
+    function seg(mat, r, len, parent, y){
+      const m = new THREE.Mesh(new THREE.CapsuleGeometry(r, len, 4, 8), mat);
+      m.position.y = (typeof y === 'number') ? y : -(len/2 + r);
+      parent.add(m);
+      return m;
+    }
+    function grp(name, parent, x, y, z){
+      const g = new THREE.Group();
+      g.name = name;
+      if (typeof x === 'number') g.position.x = x;
+      if (typeof y === 'number') g.position.y = y;
+      if (typeof z === 'number') g.position.z = z;
+      parent.add(g);
+      return g;
+    }
+
+    const hips   = grp('mixamorigHips',   root,   0, 1.00, 0);
+    const spine  = grp('mixamorigSpine',  hips,   0, 0.12, 0);
+    const chest  = grp('mixamorigSpine2', spine,  0, 0.22, 0);
+    const neck   = grp('mixamorigNeck',   chest,  0, 0.24, 0);
+    const head   = grp('mixamorigHead',   neck,   0, 0.10, 0);
+
+    seg(SHIRT, 0.20, 0.42, chest, 0.14);
+    const headMesh = new THREE.Mesh(new THREE.SphereGeometry(0.115, 14, 14), SKIN);
+    headMesh.position.y = 0.10;
+    head.add(headMesh);
+
+    const lUpArm = grp('mixamorigLeftArm',      chest, -0.24, 0.24, 0);
+    const lFoArm = grp('mixamorigLeftForeArm',  lUpArm,  0,  -0.30, 0);
+    const lHand  = grp('mixamorigLeftHand',     lFoArm,  0,  -0.28, 0);
+    seg(SKIN, 0.05, 0.26, lUpArm, -0.17);
+    seg(SKIN, 0.045,0.24, lFoArm, -0.16);
+
+    const rUpArm = grp('mixamorigRightArm',     chest,  0.24, 0.24, 0);
+    const rFoArm = grp('mixamorigRightForeArm', rUpArm,  0,  -0.30, 0);
+    const rHand  = grp('mixamorigRightHand',    rFoArm,  0,  -0.28, 0);
+    seg(SKIN, 0.05, 0.26, rUpArm, -0.17);
+    seg(SKIN, 0.045,0.24, rFoArm, -0.16);
+
+    const lUpLeg = grp('mixamorigLeftUpLeg',  hips,  -0.10, 0, 0);
+    const lLoLeg = grp('mixamorigLeftLeg',    lUpLeg,  0, -0.42, 0);
+    const lFoot  = grp('mixamorigLeftFoot',   lLoLeg,  0, -0.42, 0);
+    seg(PANT, 0.085, 0.34, lUpLeg, -0.24);
+    seg(SKIN, 0.070, 0.34, lLoLeg, -0.24);
+    const lShoe = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.07, 0.22), SHOE);
+    lShoe.position.set(0, -0.04, 0.05);
+    lFoot.add(lShoe);
+
+    const rUpLeg = grp('mixamorigRightUpLeg', hips,   0.10, 0, 0);
+    const rLoLeg = grp('mixamorigRightLeg',   rUpLeg,  0, -0.42, 0);
+    const rFoot  = grp('mixamorigRightFoot',  rLoLeg,  0, -0.42, 0);
+    seg(PANT, 0.085, 0.34, rUpLeg, -0.24);
+    seg(SKIN, 0.070, 0.34, rLoLeg, -0.24);
+    const rShoe = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.07, 0.22), SHOE);
+    rShoe.position.set(0, -0.04, 0.05);
+    rFoot.add(rShoe);
+
+    return root;
+  }
+
+  // ─── Resize ──────────────────────────────────────────────
   window.addEventListener('resize', () => {
     camera.aspect = innerWidth / innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(innerWidth, innerHeight);
   });
 
-  // ─── Render loop ────────────────────────────────────────────
+  // ─── Render loop ─────────────────────────────────────────
   const fpsEl = document.getElementById('fps');
   let frames = 0, lastFps = performance.now();
 
