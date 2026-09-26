@@ -1,9 +1,12 @@
 /* ══════════════════════════════════════════════════════════════
-   StadiumView — cricket animation engine
-   • Shot types: cover drive, pull, cut, straight, flick, sweep, hook
-   • Each shot has a target direction → ball goes there
-   • Fielders chase based on ball direction
-   • Bat is child of hand → swings naturally with arm
+   StadiumView — Complex Match Engine v8.0
+   • Full 3D ball physics (gravity, bounce, drag, Magnus)
+   • Shot library → ball goes in the shot's direction
+   • Fielder: chase → pickup → throw back to keeper
+   • Role behaviors: keeper anticipation, umpire signals, head tracking
+   • Match state: runs, wickets, balls, overs, batsmen on strike
+   • Batsmen swap ends on odd runs; new batsman walks in after wicket
+   Exposes: window.StadiumAnim  ·  window.MatchState
    ══════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
@@ -21,8 +24,34 @@
   const BOWLER_RELEASE_Z = -11;
 
   // ═══════════════════════════════════════════════════════════
-  //  SHOT LIBRARY — each shot has a target field direction
-  //  Directions use (x, z) — off side = +x, leg side = -x
+  //  MATCH STATE — public scoreboard
+  // ═══════════════════════════════════════════════════════════
+  const MatchState = {
+    runs:        0,
+    wickets:     0,
+    balls:       0,       // legal deliveries in current innings
+    over:        0,       // completed overs
+    ballInOver:  0,       // 0..5
+    lastOutcome: '—',
+    striker:     { name: 'Striker',     runs: 0, balls: 0, onStrike: true  },
+    nonStriker:  { name: 'Non-Striker', runs: 0, balls: 0, onStrike: false },
+    bowler:      { name: 'Bowler',      balls: 0, runs: 0, wickets: 0 },
+    overHistory: [],
+    lastBallRuns: 0,
+
+    reset(){
+      this.runs = 0; this.wickets = 0; this.balls = 0;
+      this.over = 0; this.ballInOver = 0; this.lastOutcome = '—';
+      this.striker.runs = 0; this.striker.balls = 0;
+      this.nonStriker.runs = 0; this.nonStriker.balls = 0;
+      this.bowler.balls = 0; this.bowler.runs = 0; this.bowler.wickets = 0;
+      this.overHistory = [];
+    }
+  };
+  window.MatchState = MatchState;
+
+  // ═══════════════════════════════════════════════════════════
+  //  SHOT LIBRARY
   // ═══════════════════════════════════════════════════════════
   const SHOTS = {
     coverDrive:   { angle:  Math.PI * 0.15, power: 22, loft: 3, name: 'Cover Drive' },
@@ -33,7 +62,7 @@
     hook:         { angle: -Math.PI * 0.75, power: 24, loft: 6, name: 'Hook' },
     flick:        { angle: -Math.PI * 0.30, power: 18, loft: 2, name: 'Flick' },
     sweep:        { angle: -Math.PI * 0.70, power: 20, loft: 1, name: 'Sweep' },
-    lofted:       { angle:  Math.PI * 0.10, power: 30, loft: 15, name: 'Lofted' },
+    lofted:       { angle:  Math.PI * 0.10, power: 30, loft: 15, name: 'Lofted Six' },
     defense:      { angle:  Math.PI * 0.10, power:  4, loft: 0, name: 'Defense' }
   };
 
@@ -55,9 +84,10 @@
     const PC = window.PlayerControl;
     const strikerBones = PC && PC.players['Striker'] ? PC.players['Striker'].bones : {};
     const bowlerBones  = PC && PC.players['Bowler']  ? PC.players['Bowler'].bones  : {};
+    const keeperBones  = PC && PC.players['Keeper']  ? PC.players['Keeper'].bones  : {};
 
     if (!bowler || !striker || !strikerBat || !bowlerBall){
-      console.warn('[Anim] Missing refs — disabled');
+      console.warn('[Anim] Missing refs — engine disabled');
       return;
     }
 
@@ -67,6 +97,7 @@
     ];
     const fielders = FIELDER_ROLES.map(r => players[r]).filter(Boolean);
 
+    // Home snapshot
     const home = {};
     Object.keys(players).forEach(role => {
       home[role] = {
@@ -82,7 +113,7 @@
       z: strikerBat.rotation.z
     };
 
-    // Flight ball
+    // ─── Flight ball ────────────────────────────────────────
     const flightBall = bowlerBall.clone(true);
     flightBall.traverse(c => {
       if (c.isMesh && c.material){
@@ -94,7 +125,7 @@
     scene.add(flightBall);
     if (bowlerBall) bowlerBall.visible = false;
 
-    // Trail
+    // ─── Trail ──────────────────────────────────────────────
     const trailMaxPoints = 60;
     const trailPositions = new Float32Array(trailMaxPoints * 3);
     const trailGeometry  = new THREE.BufferGeometry();
@@ -137,7 +168,7 @@
       trailGeometry.setDrawRange(0, 0);
     }
 
-    // Ball physics
+    // ─── Ball physics ───────────────────────────────────────
     const ball = {
       pos: new THREE.Vector3(),
       vel: new THREE.Vector3(),
@@ -178,9 +209,11 @@
         ball.vel.z += k * (ball.spinning.x * ball.vel.y - ball.spinning.y * ball.vel.x) * dt;
         const drag = 1 - AIR_DRAG * dt;
         ball.vel.x *= drag; ball.vel.z *= drag;
+
         ball.pos.x += ball.vel.x * dt;
         ball.pos.y += ball.vel.y * dt;
         ball.pos.z += ball.vel.z * dt;
+
         const groundY = fieldY + BALL_RADIUS;
         if (ball.pos.y < groundY){
           ball.pos.y = groundY;
@@ -198,17 +231,16 @@
       }
 
       flightBall.position.copy(ball.pos);
-      if (ball.rolling && Math.hypot(ball.vel.x, ball.vel.z) < 0.3) ball.active = false;
+      if (ball.rolling && Math.hypot(ball.vel.x, ball.vel.z) < 0.3){
+        ball.active = false;
+      }
     }
 
+    // ─── Delivery ───────────────────────────────────────────
     function launchDelivery(){
       const lengths = ['short', 'good', 'full'];
-      const choice  = lengths[Math.floor(Math.random() * 3)];
-      let pitchZ;
-      if (choice === 'short')     pitchZ = 4.5;
-      else if (choice === 'good') pitchZ = 6.5;
-      else                        pitchZ = 8.0;
-
+      const choice  = lengths[Math.floor(Math.random() * lengths.length)];
+      let pitchZ = choice === 'short' ? 4.5 : choice === 'good' ? 6.5 : 8.0;
       const releaseY   = fieldY + 2.0;
       const releasePos = new THREE.Vector3(0.55, releaseY, BOWLER_RELEASE_Z);
       const t = 0.5;
@@ -218,22 +250,21 @@
       launchBall(releasePos, new THREE.Vector3(vx, vy, vz), { x: 20, y: 0, z: 0 });
     }
 
-    // ═══════════════════════════════════════════════════════════
-    //  HIT — sends ball in shot's target direction
-    // ═══════════════════════════════════════════════════════════
+    // ─── Hit ────────────────────────────────────────────────
     let currentShot = null;
+    let lastHitContactPos = new THREE.Vector3();
 
     function launchHit(outcome){
       const contactPos = new THREE.Vector3(
         striker.position.x, fieldY + 0.7, striker.position.z
       );
+      lastHitContactPos.copy(contactPos);
 
       if (outcome.wicket){
         launchBall(contactPos, new THREE.Vector3(0, 0.5, 10), { x: 0, y: 0, z: 0 });
         return;
       }
 
-      // Pick a shot based on outcome
       let shot;
       if (outcome.runs === 0)      shot = SHOTS.defense;
       else if (outcome.runs === 6) shot = SHOTS.lofted;
@@ -246,13 +277,10 @@
       }
       currentShot = shot;
 
-      // Force 4/6 to travel further
       let power = shot.power;
       if (outcome.runs === 6) power = 32;
       if (outcome.runs === 4) power = 28;
 
-      // Direction: batsman faces -Z; off side = +X, leg side = -X
-      // shot.angle is measured from straight (0 = toward bowler, +π/2 = off side)
       const dirX = Math.sin(shot.angle);
       const dirZ = -Math.cos(shot.angle);
 
@@ -260,9 +288,7 @@
       if (outcome.runs === 6) vy = 14;
       else if (outcome.runs === 4) vy = shot.loft > 3 ? 8 : 2.5;
 
-      launchBall(contactPos, new THREE.Vector3(
-        dirX * power, vy, dirZ * power
-      ), { x: 15, y: 0, z: 0 });
+      launchBall(contactPos, new THREE.Vector3(dirX * power, vy, dirZ * power), { x: 15, y: 0, z: 0 });
 
       if (outcome.runs === 6) trailStart(0xff6d00);
       else if (outcome.runs === 4) trailStart(0x22d3ee);
@@ -280,27 +306,29 @@
 
     function rollOutcome(){
       const r = Math.random();
-      if (r < 0.32) return { runs: 0 };
-      if (r < 0.52) return { runs: 1 };
-      if (r < 0.62) return { runs: 2 };
-      if (r < 0.67) return { runs: 3 };
-      if (r < 0.85) return { runs: 4, boundary: true };
-      if (r < 0.93) return { runs: 6, boundary: true };
+      if (r < 0.30) return { runs: 0 };
+      if (r < 0.50) return { runs: 1 };
+      if (r < 0.60) return { runs: 2 };
+      if (r < 0.65) return { runs: 3 };
+      if (r < 0.83) return { runs: 4, boundary: true };
+      if (r < 0.92) return { runs: 6, boundary: true };
       return { runs: 0, wicket: true };
     }
 
+    // ─── State machine ──────────────────────────────────────
     const PHASE = {
       IDLE:'idle', GUARD:'guard', MARK_RUNUP:'mark_runup', RUNUP:'runup',
       DELIVERY:'delivery', INBOUND:'inbound', SWING:'swing', OUTBOUND:'outbound',
+      FIELD_CHASE:'field_chase', THROW_RETURN:'throw_return',
       RUNNING:'running', SIGNAL:'signal', RESET:'reset', WALK_BACK:'walk_back'
     };
 
-    let phase      = PHASE.IDLE;
-    let phaseStart = performance.now();
-    let phaseData  = {};
-    let outcome    = null;
+    let phase       = PHASE.IDLE;
+    let phaseStart  = performance.now();
+    let phaseData   = {};
+    let outcome     = null;
     let customOutcome = null;
-    let paused     = false;
+    let paused      = false;
 
     const DUR = {
       idle:1200, guard:2200, mark_runup:2400, runup:1500, delivery:100,
@@ -327,7 +355,107 @@
       bone.quaternion.multiply(_q);
     }
 
-    // ─── IDLE ──────────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════
+    //  ROLE BEHAVIORS (head tracking, keeper anticipation)
+    // ═══════════════════════════════════════════════════════════
+    function roleHeadTrack(group, target, smoothing){
+      if (!group || !target) return;
+      const dx = target.x - group.position.x;
+      const dz = target.z - group.position.z;
+      const targetAngle = Math.atan2(dx, dz);
+      let diff = targetAngle - group.rotation.y;
+      while (diff >  Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      group.rotation.y += diff * (smoothing || 0.08);
+    }
+
+    function updateRoles(now, dt){
+      // Keeper lateral anticipation
+      if (keeper && ball.active){
+        const targetX = Math.max(-1.5, Math.min(1.5, ball.pos.x * 0.35));
+        keeper.position.x += (targetX - keeper.position.x) * 0.12;
+        roleHeadTrack(keeper, ball.pos, 0.10);
+      } else if (keeper){
+        keeper.position.x += (home['Keeper'].pos.x - keeper.position.x) * 0.05;
+      }
+      // Umpire head tracks ball
+      if (umpBowl && ball.active){
+        roleHeadTrack(umpBowl, ball.pos, 0.08);
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  FIELDER — chase → pickup → throw back
+    // ═══════════════════════════════════════════════════════════
+    let chasingFielder = null;
+    let fielderState   = 'IDLE';   // IDLE → CHASING → PICKING_UP → THROWING
+    let fielderTimer   = 0;
+
+    function pickChaser(shotDirX, shotDirZ){
+      let best = null, bestDot = -Infinity;
+      fielders.forEach(f => {
+        const h = home[f.name] ? home[f.name].pos : f.position;
+        const len = Math.hypot(h.x, h.z) || 1;
+        const dot = (h.x / len) * shotDirX + (h.z / len) * shotDirZ;
+        if (dot > bestDot){ bestDot = dot; best = f; }
+      });
+      chasingFielder = best || fielders[0];
+      fielderState = 'CHASING';
+      fielderTimer = 0;
+      if (window.StadiumAnim) window.StadiumAnim.activeChaserRole =
+        chasingFielder ? (chasingFielder.userData.role || chasingFielder.name) : null;
+      if (chasingFielder) console.log('[Anim] Chaser → ' + chasingFielder.userData.role);
+    }
+
+    function updateFielder(dt){
+      if (!chasingFielder){ fielderState = 'IDLE'; return; }
+      const cf = chasingFielder;
+
+      if (fielderState === 'CHASING'){
+        const dx = ball.pos.x - cf.position.x;
+        const dz = ball.pos.z - cf.position.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist > 0.7){
+          const speed = 8.5 * dt;
+          cf.position.x += (dx / dist) * Math.min(speed, dist);
+          cf.position.z += (dz / dist) * Math.min(speed, dist);
+          cf.position.y = fieldY;
+          cf.rotation.y = Math.atan2(dx, dz);
+        } else {
+          fielderState = 'PICKING_UP';
+          fielderTimer = 0;
+          ball.active = false;
+          flightBall.visible = false;
+        }
+      } else if (fielderState === 'PICKING_UP'){
+        fielderTimer += dt;
+        if (fielderTimer > 0.6){
+          fielderState = 'THROWING';
+          fielderTimer = 0;
+          // Throw back to keeper
+          const targetX = 0, targetZ = 12.6;
+          const dx = targetX - cf.position.x;
+          const dz = targetZ - cf.position.z;
+          const dist = Math.hypot(dx, dz);
+          const throwSpeed = 22;
+          launchBall(
+            cf.position.clone().setY(fieldY + 1.2),
+            new THREE.Vector3(dx / dist * throwSpeed, 6, dz / dist * throwSpeed),
+            { x: 5, y: 0, z: 0 }
+          );
+        }
+      } else if (fielderState === 'THROWING'){
+        fielderTimer += dt;
+        if (fielderTimer > 0.5){
+          chasingFielder = null;
+          fielderState = 'IDLE';
+        }
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  ANIMATIONS
+    // ═══════════════════════════════════════════════════════════
     function animateIdle(now){
       striker.position.x = home['Striker'].pos.x + Math.sin(now * 0.0009) * 0.015;
       striker.position.z = home['Striker'].pos.z + Math.cos(now * 0.001)  * 0.015;
@@ -343,99 +471,70 @@
         f.position.x += (h.x - f.position.x) * 0.05;
         f.position.z += (h.z - f.position.z) * 0.05;
         f.position.y = fieldY;
-        f.rotation.y = home[f.name] ? home[f.name].rotY : f.rotation.y;
-        f.rotation.x = 0;
       });
 
-      // Keeper light crouch
       if (keeper){
-        keeper.rotation.x = 0.15;
+        keeper.position.y = fieldY;
+        // Keeper crouch — thigh/shin bend
+        if (keeperBones.lThigh) rot(keeperBones.lThigh, AX, -0.35);
+        if (keeperBones.rThigh) rot(keeperBones.rThigh, AX, -0.35);
+        if (keeperBones.lShin)  rot(keeperBones.lShin,  AX,  0.70);
+        if (keeperBones.rShin)  rot(keeperBones.rShin,  AX,  0.70);
       }
     }
 
-    // ─── GUARD ────────────────────────────────────────────
     function animateGuard(p){
       const look = Math.sin(p * Math.PI * 2) * 0.18;
       striker.rotation.y = home['Striker'].rotY + look;
-
-      const tap1 = (p > 0.30 && p < 0.45)
-        ? Math.max(0, Math.sin((p - 0.30) * Math.PI / 0.15)) : 0;
-      const tap2 = (p > 0.55 && p < 0.70)
-        ? Math.max(0, Math.sin((p - 0.55) * Math.PI / 0.15)) : 0;
-      const tap  = (tap1 + tap2) * 0.22;
-
-      strikerBat.rotation.x = batRest.x + tap * 0.3;
-      strikerBat.rotation.z = batRest.z - tap * 0.4;
-
+      const tap = Math.sin(p * Math.PI * 4) * 0.1;
+      strikerBat.rotation.x = batRest.x + tap;
       striker.position.y = fieldY + Math.abs(Math.sin(p * Math.PI * 4)) * 0.015;
-      if (keeper) keeper.rotation.x = 0.15;
+      if (keeper){
+        keeper.position.y = fieldY;
+        if (keeperBones.lThigh) rot(keeperBones.lThigh, AX, -0.35);
+        if (keeperBones.rThigh) rot(keeperBones.rThigh, AX, -0.35);
+      }
     }
 
-    // ─── MARK RUN-UP ─────────────────────────────────────
     function animateMarkRunup(p){
       if (p < 0.55){
         const q = easeInOut(p / 0.55);
         bowler.position.x = lerp(home['Bowler'].pos.x, 1.2, q);
         bowler.position.z = lerp(home['Bowler'].pos.z, BOWLER_START_Z, q);
-        bowler.position.y = fieldY;
-        bowler.rotation.x = 0.05;
-        bowler.rotation.y = lerp(home['Bowler'].rotY, Math.PI * 0.05, q);
       } else {
         const q = (p - 0.55) / 0.45;
-        const footTap = Math.sin(q * Math.PI * 6) * 0.04;
-        bowler.position.x = 1.2 + footTap;
+        bowler.position.x = 1.2 + Math.sin(q * Math.PI * 6) * 0.04;
         bowler.position.z = BOWLER_START_Z;
-        bowler.position.y = fieldY + Math.abs(footTap) * 0.3;
-        bowler.rotation.x = 0.05;
-        if (umpBowl) umpBowl.rotation.y = Math.sin(q * Math.PI * 2) * 0.15;
       }
-      if (keeper){
-        const q = Math.min(1, Math.max(0, (p - 0.55) / 0.45));
-        keeper.rotation.x = 0.15 + q * 0.20;
-      }
+      if (umpBowl) umpBowl.rotation.y = Math.sin(p * Math.PI * 2) * 0.15;
     }
 
-    const _armQ = new THREE.Quaternion();
-    const _AX = new THREE.Vector3(1, 0, 0);
-    function swingBone(bone, angle){
-      if (!bone) return;
-      _armQ.setFromAxisAngle(_AX, angle);
-      bone.quaternion.multiply(_armQ);
-    }
-
-    // ─── RUN-UP ──────────────────────────────────────────
     function animateRunup(p){
       const e = easeInOut(p);
       bowler.position.x = lerp(1.2, 0.55, e) + Math.sin(p * Math.PI * 6) * 0.1;
       bowler.position.z = lerp(BOWLER_START_Z, BOWLER_RELEASE_Z, e);
       bowler.position.y = fieldY + Math.abs(Math.sin(p * Math.PI * 8)) * 0.1;
-      bowler.rotation.x = 0.15 * e;
-
-      const armSwing = Math.sin(p * Math.PI * 6) * 0.6;
-      swingBone(bowlerBones.rUpperArm, armSwing);
-      swingBone(bowlerBones.lUpperArm, -armSwing);
-
-      if (keeper) keeper.rotation.x = 0.35;
+      // Bowler arm swing
+      if (bowlerBones.rUpperArm){
+        rot(bowlerBones.rUpperArm, AX, Math.sin(p * Math.PI * 6) * 0.6);
+      }
+      if (bowlerBones.lUpperArm){
+        rot(bowlerBones.lUpperArm, AX, -Math.sin(p * Math.PI * 6) * 0.6);
+      }
     }
 
-    // ─── DELIVERY ────────────────────────────────────────
     function animateDelivery(p){
       const e = easeOut(p);
       bowler.position.z = BOWLER_RELEASE_Z + 0.6 * e;
       bowler.position.y = fieldY;
       bowler.rotation.x = 0.15 - 0.5 * e;
-
-      const armAngle = lerp(-0.4, 2.2, e);
-      swingBone(bowlerBones.rUpperArm, armAngle);
-      swingBone(bowlerBones.lUpperArm, -0.3);
-
-      if (keeper) keeper.rotation.x = 0.45;
+      if (bowlerBones.rUpperArm){
+        rot(bowlerBones.rUpperArm, AX, lerp(-0.4, 2.2, e));
+      }
     }
 
-    // ─── BATSMAN SWING — rotates bat in hand, body follows shot ──
     function animateSwing(p){
-      // Bat local rotation (relative to hand)
-      // Local X = swing arc, Local Z = cross-bat angle
+      // Bat local rotation
       if (p < 0.25){
         const q = p / 0.25;
         strikerBat.rotation.x = batRest.x + lerp(0, -0.9, easeInOut(q));
@@ -450,35 +549,26 @@
         strikerBat.rotation.z = batRest.z + lerp(-0.6, -1.0, easeInOut(q));
       }
 
-      // Body turns toward the shot direction
       let bodyAngle = 0;
-      if (currentShot){
-        bodyAngle = currentShot.angle * 0.6;
-      }
+      if (currentShot) bodyAngle = currentShot.angle * 0.6;
       striker.rotation.y = home['Striker'].rotY + lerp(0, bodyAngle, easeOut(p));
 
-      // Arms rotate the bat into the swing
       let armAngle = 0;
       if (p < 0.25)      armAngle = lerp(0, 0.7, p / 0.25);
       else if (p < 0.55) armAngle = lerp(0.7, -1.1, (p - 0.25) / 0.30);
       else               armAngle = lerp(-1.1, -1.5, (p - 0.55) / 0.45);
-      swingBone(strikerBones.rUpperArm, armAngle);
-      swingBone(strikerBones.lUpperArm, armAngle * 0.6);
+      if (strikerBones.rUpperArm) rot(strikerBones.rUpperArm, AX, armAngle);
+      if (strikerBones.lUpperArm) rot(strikerBones.lUpperArm, AX, armAngle * 0.6);
     }
 
-    // ─── RUNNING ─────────────────────────────────────────
     function animateRunning(totalRuns, progress){
       const lap = Math.min(progress, totalRuns);
       const currentLap = Math.floor(lap);
       const frac = lap - currentLap;
       const goingForward = currentLap % 2 === 0;
 
-      const sZ = goingForward
-        ? lerp(STRIKER_Z, NON_STRIKER_Z, frac)
-        : lerp(NON_STRIKER_Z, STRIKER_Z, frac);
-      const nZ = goingForward
-        ? lerp(NON_STRIKER_Z, STRIKER_Z, frac)
-        : lerp(STRIKER_Z, NON_STRIKER_Z, frac);
+      const sZ = goingForward ? lerp(STRIKER_Z, NON_STRIKER_Z, frac) : lerp(NON_STRIKER_Z, STRIKER_Z, frac);
+      const nZ = goingForward ? lerp(NON_STRIKER_Z, STRIKER_Z, frac) : lerp(STRIKER_Z, NON_STRIKER_Z, frac);
 
       striker.position.x = 0.6;
       striker.position.z = sZ;
@@ -490,18 +580,18 @@
       striker.position.y    = fieldY + bob;
       nonStriker.position.y = fieldY + bob;
 
-      striker.rotation.x    = 0.15;
-      nonStriker.rotation.x = 0.15;
+      striker.rotation.x    = 0.25;
+      nonStriker.rotation.x = 0.25;
       striker.rotation.y    = goingForward ? 0 : Math.PI;
       nonStriker.rotation.y = goingForward ? Math.PI : 0;
 
-      ['Striker','Non-Striker'].forEach(r => {
-        const RB = PC && PC.players[r] ? PC.players[r].bones : {};
-        rot(RB.lThigh, AX,  Math.sin(cyc) * 0.9);
-        rot(RB.rThigh, AX, -Math.sin(cyc) * 0.9);
-        rot(RB.lShin,  AX, -Math.max(0, -Math.sin(cyc - 0.4)) * 1.4);
-        rot(RB.rShin,  AX, -Math.max(0,  Math.sin(cyc - 0.4)) * 1.4);
-      });
+      // Legs run
+      const SBones = PC.players['Striker'].bones;
+      const NBones = PC.players['Non-Striker'].bones;
+      rot(SBones.lThigh, AX,  Math.sin(cyc) * 0.9);
+      rot(SBones.rThigh, AX, -Math.sin(cyc) * 0.9);
+      rot(NBones.lThigh, AX,  Math.sin(cyc) * 0.9);
+      rot(NBones.rThigh, AX, -Math.sin(cyc) * 0.9);
     }
 
     function settleAfterRuns(totalRuns){
@@ -521,54 +611,13 @@
       nonStriker.rotation.x = 0;
     }
 
-    // ─── SIGNAL ──────────────────────────────────────────
     function animateSignal(p, type){
       if (!umpBowl) return;
-      const up   = Math.min(1, p * 4);
-      const down = Math.max(0, 1 - (p - 0.65) / 0.35);
-      const a    = Math.min(up, down);
-      if (type === 'four')      umpBowl.rotation.y = lerp(0, -0.9, easeInOut(a));
-      else if (type === 'six')  umpBowl.rotation.x = lerp(0, -0.35, easeInOut(a));
-      else                       umpBowl.rotation.x = lerp(0,  0.25, easeInOut(a));
+      if (type === 'four')      umpBowl.rotation.y = lerp(0, -0.9, easeInOut(p));
+      else if (type === 'six')  umpBowl.rotation.x = lerp(0, -0.35, easeInOut(p));
+      else                       umpBowl.rotation.x = lerp(0,  0.25, easeInOut(p));
     }
 
-    // ─── FIELDER CHASE ───────────────────────────────────
-    let chasingFielder = null;
-
-    function pickChaser(shotDirX, shotDirZ){
-      // Pick fielder in the shot direction (dot product)
-      let best = null, bestDot = -Infinity;
-      fielders.forEach(f => {
-        const h = home[f.name] ? home[f.name].pos : f.position;
-        const dx = h.x, dz = h.z;
-        const len = Math.hypot(dx, dz) || 1;
-        const dot = (dx / len) * shotDirX + (dz / len) * shotDirZ;
-        if (dot > bestDot){ bestDot = dot; best = f; }
-      });
-      chasingFielder = best;
-      if (best) console.log('[Anim] Chaser → ' + (best.userData.role || best.name));
-    }
-
-    function updateChaser(dt){
-      if (!chasingFielder) return;
-      const cf = chasingFielder;
-      const dx = ball.pos.x - cf.position.x;
-      const dz = ball.pos.z - cf.position.z;
-      const dist = Math.hypot(dx, dz);
-      if (dist > 0.5){
-        const speed = 8 * dt;
-        cf.position.x += (dx / dist) * Math.min(speed, dist);
-        cf.position.z += (dz / dist) * Math.min(speed, dist);
-        cf.position.y = fieldY;
-        // Face direction of motion
-        cf.rotation.y = Math.atan2(dx, dz);
-      } else {
-        cf.position.y = fieldY;
-        chasingFielder = null;
-      }
-    }
-
-    // ─── RESET ───────────────────────────────────────────
     function resetAll(t){
       const e = easeInOut(t);
       Object.keys(players).forEach(role => {
@@ -590,10 +639,63 @@
       bowler.position.z = lerp(BOWLER_RELEASE_Z, BOWLER_START_Z, e);
       bowler.position.y = fieldY;
       bowler.rotation.x = 0.05;
-      bowler.rotation.y = lerp(0, Math.PI * 0.15, e);
     }
 
-    // UI
+    // ═══════════════════════════════════════════════════════════
+    //  MATCH STATE UPDATES (after each ball completes)
+    // ═══════════════════════════════════════════════════════════
+    function updateMatchState(runs, isWicket){
+      MatchState.lastBallRuns = runs;
+
+      // Balls / overs
+      MatchState.balls++;
+      MatchState.ballInOver++;
+      MatchState.striker.balls++;
+      MatchState.bowler.balls++;
+      if (MatchState.ballInOver >= 6){
+        MatchState.ballInOver = 0;
+        MatchState.over++;
+        MatchState.overHistory.push(MatchState.runs);
+      }
+
+      // Runs
+      MatchState.runs += runs;
+      MatchState.striker.runs += runs;
+      MatchState.bowler.runs += runs;
+
+      if (isWicket){
+        MatchState.wickets++;
+        MatchState.bowler.wickets++;
+        MatchState.lastOutcome = 'W';
+      } else if (runs === 4){
+        MatchState.lastOutcome = '4';
+      } else if (runs === 6){
+        MatchState.lastOutcome = '6';
+      } else if (runs === 0){
+        MatchState.lastOutcome = '•';
+      } else {
+        MatchState.lastOutcome = String(runs);
+      }
+
+      // Batsmen swap ends on odd runs
+      if (runs % 2 === 1){
+        const tmp = MatchState.striker.onStrike;
+        MatchState.striker.onStrike = MatchState.nonStriker.onStrike;
+        MatchState.nonStriker.onStrike = tmp;
+      }
+
+      // Scoreboard toast
+      if (window.showToast){
+        window.showToast(
+          'Score: ' + MatchState.runs + '/' + MatchState.wickets +
+          ' · ' + MatchState.over + '.' + MatchState.ballInOver + ' ov'
+        );
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  UI Banner / shake
+    // ═══════════════════════════════════════════════════════════
     let bannerEl = document.getElementById('cm-banner');
     function showBanner(text, color){
       if (!bannerEl) return;
@@ -630,8 +732,12 @@
       SV.camera.position.y += (Math.random() - 0.5) * a;
     }
 
-    // ─── MAIN LOOP ───────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════
+    //  MAIN LOOP
+    // ═══════════════════════════════════════════════════════════
     let lastFrameTime = performance.now();
+    let roleTickAccum = 0;
+
     function tick(now){
       requestAnimationFrame(tick);
       const dt = Math.min((now - lastFrameTime) / 1000, 0.05);
@@ -640,20 +746,22 @@
       applyShake(now);
       if (paused) return;
 
+      // Role behaviors every frame
+      updateRoles(now, dt);
+
       const elapsed = now - phaseStart;
 
       if (ball.active){
         updateBall(dt);
         if (trail.visible) trailPush(ball.pos);
-        if (chasingFielder) updateChaser(dt);
       }
+      if (chasingFielder) updateFielder(dt);
 
       switch(phase){
         case PHASE.IDLE:
           animateIdle(now);
           if (elapsed > DUR.idle) setPhase(PHASE.GUARD);
           break;
-
         case PHASE.GUARD: {
           const p = Math.min(1, elapsed / DUR.guard);
           animateGuard(p);
@@ -717,19 +825,23 @@
             }
           }
 
-          // Pick fielder based on actual shot direction
-          if (currentShot && !phaseData._chaserPicked){
+          // Pick chaser based on shot direction
+          if (currentShot && !phaseData._chaserPicked && outcome.runs > 0 && outcome.runs < 4){
             phaseData._chaserPicked = true;
-            const dx = Math.sin(currentShot.angle);
-            const dz = -Math.cos(currentShot.angle);
-            pickChaser(dx, dz);
+            pickChaser(Math.sin(currentShot.angle), -Math.cos(currentShot.angle));
           }
 
           const stopped  = !ball.active;
           const crossed  = Math.hypot(ball.pos.x, ball.pos.z) > BOUNDARY_R;
           const flew     = outcome.runs === 6 && elapsed > 3500;
+
           if (stopped || crossed || flew){
             trailStop();
+            // Update scoreboard once per ball
+            if (!phaseData._scored){
+              phaseData._scored = true;
+              updateMatchState(outcome.runs, !!outcome.wicket);
+            }
             if (outcome.runs > 0 && outcome.runs < 4 && !outcome.wicket)
               setPhase(PHASE.RUNNING, { runs: outcome.runs });
             else
@@ -742,7 +854,10 @@
           const dur  = runs * 1200;
           const p    = Math.min(1, elapsed / dur);
           animateRunning(runs, p * runs);
-          if (p >= 1){ settleAfterRuns(runs); setPhase(PHASE.SIGNAL); }
+          if (p >= 1){
+            settleAfterRuns(runs);
+            setPhase(PHASE.SIGNAL);
+          }
           break;
         }
         case PHASE.SIGNAL: {
@@ -762,7 +877,8 @@
             flightBall.visible = false;
             trailStop();
             currentShot = null;
-            if (SV.stumpsStriker) SV.stumpsStriker.rotation.x = 0;
+            chasingFielder = null;
+            fielderState = 'IDLE';
             setPhase(PHASE.WALK_BACK);
           }
           break;
@@ -770,31 +886,46 @@
         case PHASE.WALK_BACK: {
           const p = Math.min(1, elapsed / DUR.walk_back);
           animateWalkBack(p);
-          if (p >= 1){ outcome = null; setPhase(PHASE.IDLE); }
+          if (p >= 1){
+            outcome = null;
+            setPhase(PHASE.IDLE);
+          }
           break;
         }
       }
     }
 
-    console.log('[Anim] ✅ v6 ready — shot-direction engine active');
+    console.log('[Anim] ✅ Complex Match Engine v8.0 ready');
+    console.log('[Anim] MatchState exposed at window.MatchState');
     requestAnimationFrame(tick);
 
+    // ═══════════════════════════════════════════════════════════
+    //  PUBLIC API
+    // ═══════════════════════════════════════════════════════════
     window.StadiumAnim = {
+      ball: ball,
+      activeChaserRole: null,
       deliver: function(runs, wicket){
         if (phase !== PHASE.IDLE && phase !== PHASE.WALK_BACK &&
             phase !== PHASE.GUARD && phase !== PHASE.MARK_RUNUP){
           return false;
         }
         if (runs !== undefined){
-          customOutcome = { runs: runs || 0, wicket: !!wicket,
-                            boundary: (runs === 4 || runs === 6) };
+          customOutcome = {
+            runs: runs || 0,
+            wicket: !!wicket,
+            boundary: (runs === 4 || runs === 6)
+          };
         }
         setPhase(PHASE.RUNUP);
         return true;
       },
       setNextOutcome: function(runs, wicket){
-        customOutcome = { runs: runs || 0, wicket: !!wicket,
-                          boundary: (runs === 4 || runs === 6) };
+        customOutcome = {
+          runs: runs || 0,
+          wicket: !!wicket,
+          boundary: (runs === 4 || runs === 6)
+        };
       },
       currentPhase: function(){ return phase; },
       pause:  function(){ paused = true;  },
@@ -805,7 +936,12 @@
         trailStop();
         outcome = null;
         currentShot = null;
+        chasingFielder = null;
         setPhase(PHASE.IDLE);
+      },
+      resetMatch: function(){
+        MatchState.reset();
+        console.log('[Anim] Match reset');
       }
     };
   }
