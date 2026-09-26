@@ -42,7 +42,6 @@
     camera.lookAt(_target);
   }
 
-  // ─── 14 View definitions ─────────────────────────────────
   const VIEW_DEFS = {
     overview: { x: 0,    y: 10,  z: 0,   th: Math.PI * 0.25,  ph: Math.PI * 0.30, r: 160 },
     tv:       { x: 0,    y: 2,   z: 0,   th: -Math.PI * 0.5,  ph: Math.PI * 0.44, r: 34  },
@@ -79,7 +78,6 @@
     })();
   }
 
-  // ─── Public API ──────────────────────────────────────────
   window.__applyView = function(name){
     const view = VIEW_DEFS[name];
     if (!view){
@@ -110,23 +108,23 @@
     if (scene.background && scene.background.setHex) scene.background.setHex(bgHex);
 
     if (mode === 'day'){
-      if (ambient) ambient.intensity = 1.6;
-      if (hemi)    hemi.intensity    = 1.0;
-      if (sun){ sun.intensity = 2.2; sun.color.setHex(0xffffff); sun.position.set(60, 200, 40); }
-      if (SV && SV.setFloodlights) SV.setFloodlights(0);
-      if (renderer) renderer.toneMappingExposure = 1.4;
-    } else if (mode === 'sunset'){
       if (ambient) ambient.intensity = 0.9;
-      if (hemi)    hemi.intensity    = 0.6;
-      if (sun){ sun.intensity = 1.3; sun.color.setHex(0xff8855); sun.position.set(300, 60, -200); }
+      if (hemi)    hemi.intensity    = 0.5;
+      if (sun){ sun.intensity = 1.3; sun.color.setHex(0xffffff); sun.position.set(60, 200, 40); }
+      if (SV && SV.setFloodlights) SV.setFloodlights(0);
+      if (renderer) renderer.toneMappingExposure = 1.0;
+    } else if (mode === 'sunset'){
+      if (ambient) ambient.intensity = 0.6;
+      if (hemi)    hemi.intensity    = 0.4;
+      if (sun){ sun.intensity = 0.9; sun.color.setHex(0xff8855); sun.position.set(300, 60, -200); }
       if (SV && SV.setFloodlights) SV.setFloodlights(0.4);
-      if (renderer) renderer.toneMappingExposure = 1.2;
+      if (renderer) renderer.toneMappingExposure = 0.95;
     } else {
-      if (ambient) ambient.intensity = 0.25;
-      if (hemi)    hemi.intensity   = 0.20;
+      if (ambient) ambient.intensity = 0.15;
+      if (hemi)    hemi.intensity    = 0.10;
       if (sun)     sun.intensity     = 0;
       if (SV && SV.setFloodlights) SV.setFloodlights(1);
-      if (renderer) renderer.toneMappingExposure = 1.1;
+      if (renderer) renderer.toneMappingExposure = 1.0;
     }
 
     document.querySelectorAll('#timeRow button').forEach(function(b){
@@ -150,12 +148,12 @@
       renderer = SV.renderer;
 
       if (!camera || !renderer){
-        console.warn('[Camera] missing camera/renderer — input disabled');
+        console.warn('[Camera] missing camera/renderer');
         return;
       }
 
       const F = currentFieldY();
-      _target.set(0, F + 10, 0);
+      _target.set(0, F + 2, 0);
       updateCamera();
 
       const canvas = renderer.domElement;
