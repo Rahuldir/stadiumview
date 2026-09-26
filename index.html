@@ -3,12 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>CRICMAX</title>
+<title>CRICMAX · StadiumView</title>
 <link href="https://fonts.googleapis.com/css2?family=Titillium+Web:ital,wght@0,900;1,900&family=JetBrains+Mono:wght@700&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#050505;color:#fff;font-family:'Titillium Web',Arial,sans-serif;touch-action:none;user-select:none;-webkit-user-select:none}
 canvas{display:block}
+
+/* ── Loader ──────────────────────────────────────── */
 #loader{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at 50% 35%,#1a0808 0%,#0a0505 45%,#030303 100%);transition:opacity .6s}
 #loader.hide{opacity:0;pointer-events:none}
 .stage{width:min(420px,calc(100vw - 32px));padding:26px 24px 22px;background:linear-gradient(135deg,rgba(15,10,10,.92),rgba(8,8,10,.94));border:1px solid rgba(255,255,255,.06);border-left:3px solid #e10600;box-shadow:0 30px 80px rgba(0,0,0,.9)}
@@ -23,24 +25,36 @@ canvas{display:block}
 .status .sub{font-family:'JetBrains Mono',monospace;font-size:10px;color:#7a8590}
 .bar{height:6px;background:rgba(255,255,255,.04);overflow:hidden;border-left:3px solid #e10600}
 .bar>div{height:100%;width:0%;background:linear-gradient(90deg,#e10600,#ff4000 40%,#ffb800);transition:width .3s}
+
+/* ── HUD ─────────────────────────────────────────── */
 #hud{position:fixed;top:12px;left:12px;right:12px;display:flex;justify-content:space-between;z-index:100;pointer-events:none}
 #hud .pill{background:rgba(8,8,12,.75);border:1px solid rgba(255,255,255,.08);border-left:3px solid #e10600;padding:5px 11px;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:1px;color:#00e676;border-radius:3px}
 #hud .pill.fps{color:#ffb800;border-left-color:#ffb800}
-#menuBtn{position:fixed;bottom:18px;right:18px;width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,rgba(15,15,20,.95),rgba(8,8,12,.95));border:2px solid rgba(225,6,0,.5);color:#fff;font-size:20px;display:flex;align-items:center;justify-content:center;z-index:500;cursor:pointer;box-shadow:0 8px 30px rgba(0,0,0,.8),0 0 20px rgba(225,6,0,.3)}
-#menuBtn.open{background:linear-gradient(135deg,#e10600,#7a0400);border-color:#ff4040}
-#menuPanel{position:fixed;right:18px;bottom:82px;width:min(300px,calc(100vw - 36px));max-height:calc(100vh - 120px);overflow-y:auto;background:rgba(8,8,12,.96);border:1px solid rgba(255,255,255,.08);border-top:2px solid #e10600;border-radius:8px;backdrop-filter:blur(16px);box-shadow:0 30px 80px rgba(0,0,0,.9);z-index:499;padding:12px;transform:translateY(20px);opacity:0;pointer-events:none;transition:all .22s cubic-bezier(.34,1.4,.64,1)}
+
+/* ── Menu ────────────────────────────────────────── */
+#menuBtn{position:fixed;bottom:18px;right:18px;width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,rgba(15,15,20,.95),rgba(8,8,12,.95));border:2px solid rgba(225,6,0,.5);color:#fff;font-size:20px;display:flex;align-items:center;justify-content:center;z-index:500;cursor:pointer;box-shadow:0 8px 30px rgba(0,0,0,.8),0 0 20px rgba(225,6,0,.3);transition:all .2s}
+#menuBtn.open{background:linear-gradient(135deg,#e10600,#7a0400);border-color:#ff4040;transform:rotate(90deg)}
+#menuPanel{position:fixed;right:18px;bottom:82px;width:min(320px,calc(100vw - 36px));max-height:calc(100vh - 120px);overflow-y:auto;background:rgba(8,8,12,.96);border:1px solid rgba(255,255,255,.08);border-top:2px solid #e10600;border-radius:8px;backdrop-filter:blur(16px);box-shadow:0 30px 80px rgba(0,0,0,.9);z-index:499;padding:12px;transform:translateY(20px);opacity:0;pointer-events:none;transition:all .22s cubic-bezier(.34,1.4,.64,1)}
 #menuPanel.open{transform:translateY(0);opacity:1;pointer-events:auto}
 .section{font-size:9px;letter-spacing:3px;text-transform:uppercase;color:#7a8590;font-weight:700;margin:12px 0 8px;padding-bottom:4px;border-bottom:1px solid rgba(255,255,255,.06)}
 .section:first-child{margin-top:0}
 .row{display:flex;flex-wrap:wrap;gap:6px}
-#menuPanel button{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:#cfd6dd;font-family:inherit;font-size:11px;font-weight:700;letter-spacing:1px;padding:7px 9px;border-radius:4px;cursor:pointer;text-transform:uppercase;flex:1 1 auto;min-width:72px}
+#menuPanel button{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:#cfd6dd;font-family:inherit;font-size:11px;font-weight:700;letter-spacing:1px;padding:7px 9px;border-radius:4px;cursor:pointer;text-transform:uppercase;flex:1 1 auto;min-width:72px;transition:all .15s}
+#menuPanel button:hover{background:rgba(255,255,255,.1);color:#fff}
 #menuPanel button.on{background:rgba(0,230,118,.15);color:#00e676;border-color:rgba(0,230,118,.5)}
 #menuPanel button.time{flex:1 1 calc(33% - 4px);font-size:17px;padding:9px 4px}
 #menuPanel button.danger{background:rgba(225,6,0,.15);color:#ff5050;border-color:rgba(225,6,0,.4)}
 #menuPanel button.auto.on{background:rgba(225,6,0,.3);color:#fff;border-color:#ff4040}
+#menuPanel button.cricket{background:rgba(34,211,238,.1);color:#22d3ee;border-color:rgba(34,211,238,.35)}
 .hint{font-size:10px;color:#7a8590;margin-top:6px;line-height:1.5;font-family:'JetBrains Mono',monospace}
+
+/* ── Toast ───────────────────────────────────────── */
 #toast{position:fixed;bottom:82px;left:50%;transform:translateX(-50%);background:rgba(8,8,12,.9);border-left:3px solid #00e676;border-radius:3px;padding:7px 12px;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:#00e676;pointer-events:none;opacity:0;transition:opacity .25s;z-index:400;max-width:calc(100vw - 40px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #toast.show{opacity:1}
+
+/* ── Anim banner ─────────────────────────────────── */
+#cm-banner{position:fixed;top:16%;left:50%;transform:translate(-50%,-30px) scale(.9);z-index:99999;font-family:'Titillium Web',Arial,sans-serif;font-weight:900;font-style:italic;font-size:clamp(48px,10vw,110px);letter-spacing:6px;text-transform:uppercase;opacity:0;transition:opacity .3s ease,transform .5s cubic-bezier(.34,1.56,.64,1);pointer-events:none;text-align:center;text-shadow:0 8px 24px rgba(0,0,0,.95)}
+#cm-flash{position:fixed;inset:0;pointer-events:none;z-index:99998;opacity:0;transition:opacity .12s ease-out;mix-blend-mode:screen}
 </style>
 
 <script type="importmap">
@@ -80,35 +94,46 @@ canvas{display:block}
 <div id="menuPanel">
   <div class="section">Camera</div>
   <div class="row" id="viewRow"></div>
+
   <div class="section">Lighting</div>
   <div class="row" id="timeRow">
     <button class="time" data-time="day">☀️</button>
     <button class="time" data-time="sunset">🌇</button>
     <button class="time" data-time="night">🌙</button>
   </div>
+
   <div class="section">Actions</div>
   <div class="row">
     <button id="btn-auto" class="auto">▶ Director</button>
     <button id="btn-reset" class="danger">↺ Reset</button>
   </div>
+
+  <div class="section">Cricket</div>
+  <div class="row">
+    <button id="btn-bowl" class="cricket">🎳 Bowl</button>
+    <button id="btn-four" class="cricket">4️⃣ Four</button>
+    <button id="btn-six"  class="cricket">6️⃣ Six</button>
+    <button id="btn-out"  class="cricket">☝️ Wicket</button>
+  </div>
+
   <div class="section">Player</div>
-  <div class="hint">Tap role · Shift+Tap field to move<br>Desktop: Tab · WASD · Esc</div>
+  <div class="hint">Tab: cycle · WASD: move · Esc: reset</div>
   <div class="row" id="playerRow"></div>
 </div>
 
 <div id="toast"></div>
+<div id="cm-banner"></div>
+<div id="cm-flash"></div>
 
 <script type="module">
-  // ═══════════════════════════════════════════════════════
-  //  Load three.js r176 + addons, expose to window,
-  //  THEN dynamically load the app scripts.
-  // ═══════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════
+  //  Load three.js + addons, expose globally, then load app
+  // ═══════════════════════════════════════════════════════════
   import * as THREE from 'three';
-  import { GLTFLoader }    from 'three/addons/loaders/GLTFLoader.js';
-  import { DRACOLoader }   from 'three/addons/loaders/DRACOLoader.js';
+  import { GLTFLoader }     from 'three/addons/loaders/GLTFLoader.js';
+  import { DRACOLoader }    from 'three/addons/loaders/DRACOLoader.js';
   import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 
-  // Create a mutable copy of THREE namespace and attach loaders
   const THREE_NS = { ...THREE };
   THREE_NS.GLTFLoader    = GLTFLoader;
   THREE_NS.DRACOLoader   = DRACOLoader;
@@ -117,7 +142,6 @@ canvas{display:block}
 
   console.log('[three] r' + THREE.REVISION + ' ready');
 
-  // Load app scripts in order (they read window.THREE)
   function loadScript(src){
     return new Promise((resolve, reject) => {
       const s = document.createElement('script');
@@ -128,22 +152,28 @@ canvas{display:block}
     });
   }
 
+  // ── Load app scripts in dependency order ──────────────────
   try {
-    await loadScript('stadium.js');
-    await loadScript('controls.js');
-    await loadScript('players.js');
-    console.log('[boot] app scripts loaded');
+    await loadScript('stadium.js');   // creates window.StadiumView
+    await loadScript('players.js');   // bones + walk cycle → window.PlayerControl
+    await loadScript('controls.js');  // camera views → __applyView / __setTime
+    await loadScript('anim.js');      // cricket animation → window.StadiumAnim
+    console.log('[boot] ✅ all app scripts loaded');
   } catch(e){
-    console.error('[boot]', e);
+    console.error('[boot] ❌', e);
   }
 
-  // ─── Menu + loader wiring (runs after scripts are attached) ──
+  // ═══════════════════════════════════════════════════════════
+  //  UI Wiring — runs after all modules are ready
+  // ═══════════════════════════════════════════════════════════
   (function menuWiring(){
-    const subEl = document.getElementById('loaderSub');
-    const textEl = document.getElementById('loaderText');
-    const barEl = document.getElementById('barFill');
-    const lights = document.querySelectorAll('.light');
-    let done = false;
+
+    const subEl   = document.getElementById('loaderSub');
+    const textEl  = document.getElementById('loaderText');
+    const barEl   = document.getElementById('barFill');
+    const lights  = document.querySelectorAll('.light');
+    let   done    = false;
+
     function updateLoader(){
       if (done) return;
       const m = (subEl.textContent || '').match(/(\d+)\s*\/\s*(\d+)/);
@@ -153,24 +183,41 @@ canvas{display:block}
       barEl.style.width = Math.round(pct*100) + '%';
       const lit = Math.floor(pct*5);
       lights.forEach((el,i) => el.classList.toggle('on', i<lit));
-      if (textEl && /ready/i.test(textEl.textContent) && !done){
+
+      // Also hide when stadium.js signals ready
+      const ready = /ready/i.test(textEl.textContent) ||
+                    (window.StadiumView && window.StadiumView.players &&
+                     Object.keys(window.StadiumView.players).length >= 15);
+      if (ready && pct >= 1 && !done){
         done = true;
         barEl.style.width = '100%';
         lights.forEach(el => { el.classList.remove('on'); el.classList.add('go'); });
-        setTimeout(() => document.getElementById('loader').classList.add('hide'), 700);
+        setTimeout(() => document.getElementById('loader').classList.add('hide'), 600);
       }
     }
-    setInterval(updateLoader, 200);
+    setInterval(updateLoader, 150);
 
+    // Force-hide fallback if loader stalls after 12s
+    setTimeout(() => {
+      if (!done){
+        done = true;
+        barEl.style.width = '100%';
+        lights.forEach(el => { el.classList.remove('on'); el.classList.add('go'); });
+        document.getElementById('loader').classList.add('hide');
+      }
+    }, 12000);
+
+    // ── Toast ────────────────────────────────────────────
     window.showToast = function(msg){
       const el = document.getElementById('toast');
       el.textContent = msg;
       el.classList.add('show');
       clearTimeout(el._t);
-      el._t = setTimeout(() => el.classList.remove('show'), 1500);
+      el._t = setTimeout(() => el.classList.remove('show'), 1600);
     };
 
-    const btn = document.getElementById('menuBtn');
+    // ── Menu open/close ──────────────────────────────────
+    const btn   = document.getElementById('menuBtn');
     const panel = document.getElementById('menuPanel');
     btn.addEventListener('click', e => {
       e.stopPropagation();
@@ -184,6 +231,7 @@ canvas{display:block}
       btn.classList.remove('open');
     });
 
+    // ── Camera view buttons ──────────────────────────────
     const viewRow = document.getElementById('viewRow');
     const VIEWS = ['overview','tv','tvlong','tvhigh','bowler','batsman',
                    'closeup','stumps','sideOn','pitch','aerial','spider','drone'];
@@ -193,30 +241,36 @@ canvas{display:block}
       b.textContent = k.charAt(0).toUpperCase() + k.slice(1);
       b.addEventListener('click', e => {
         e.preventDefault(); e.stopPropagation();
-        if (typeof window.__applyView === 'function') window.__applyView(k);
-        viewRow.querySelectorAll('button').forEach(x => x.classList.toggle('on', x===b));
+        if (typeof window.__applyView === 'function'){
+          window.__applyView(k);
+        } else {
+          console.warn('[menu] __applyView not ready');
+        }
       });
       viewRow.appendChild(b);
     });
 
+    // ── Time of day buttons ──────────────────────────────
     const timeRow = document.getElementById('timeRow');
     timeRow.querySelectorAll('button').forEach(b => {
       b.addEventListener('click', e => {
         e.preventDefault(); e.stopPropagation();
-        if (typeof window.__setTime === 'function') window.__setTime(b.dataset.time);
-        timeRow.querySelectorAll('button').forEach(x => x.classList.toggle('on', x===b));
+        if (typeof window.__setTime === 'function'){
+          window.__setTime(b.dataset.time);
+        }
       });
     });
 
-    const autoBtn = document.getElementById('btn-auto');
+    // ── Director / Reset ─────────────────────────────────
+    const autoBtn  = document.getElementById('btn-auto');
     const resetBtn = document.getElementById('btn-reset');
     const ORDER = ['tv','bowler','closeup','sideOn','batsman','stumps','tvlong','overview'];
     let timer = null, idx = 0;
+
     function step(){
       if (!autoBtn.classList.contains('on')) return;
       const name = ORDER[idx % ORDER.length]; idx++;
       if (typeof window.__applyView === 'function') window.__applyView(name);
-      viewRow.querySelectorAll('button').forEach(x => x.classList.toggle('on', x.dataset.view===name));
       timer = setTimeout(step, 5000);
     }
     autoBtn.addEventListener('click', e => {
@@ -224,35 +278,70 @@ canvas{display:block}
       const on = autoBtn.classList.toggle('on');
       autoBtn.textContent = on ? '⏸ Director' : '▶ Director';
       if (on){ idx = 0; step(); }
-      else { clearTimeout(timer); timer = null; }
+      else   { clearTimeout(timer); timer = null; }
     });
     resetBtn.addEventListener('click', e => {
       e.preventDefault(); e.stopPropagation();
-      if (window.PlayerControl) window.PlayerControl.resetAll();
-      panel.classList.remove('open');
-      btn.classList.remove('open');
+      if (window.PlayerControl && window.PlayerControl.resetAll)
+        window.PlayerControl.resetAll();
+      if (window.StadiumAnim && window.StadiumAnim.forceIdle)
+        window.StadiumAnim.forceIdle();
+      if (window.showToast) window.showToast('Reset');
     });
 
+    // ── Cricket action buttons ───────────────────────────
+    const bowlBtn = document.getElementById('btn-bowl');
+    const fourBtn = document.getElementById('btn-four');
+    const sixBtn  = document.getElementById('btn-six');
+    const outBtn  = document.getElementById('btn-out');
+
+    function cricket(fn){
+      if (window.StadiumAnim){
+        fn(window.StadiumAnim);
+      } else {
+        if (window.showToast) window.showToast('Animator not ready');
+      }
+    }
+    bowlBtn && bowlBtn.addEventListener('click', e => {
+      e.preventDefault(); e.stopPropagation();
+      cricket(A => A.setNextOutcome && A.deliver(undefined, false));
+    });
+    fourBtn && fourBtn.addEventListener('click', e => {
+      e.preventDefault(); e.stopPropagation();
+      cricket(A => A.deliver && A.deliver(4, false));
+    });
+    sixBtn && sixBtn.addEventListener('click', e => {
+      e.preventDefault(); e.stopPropagation();
+      cricket(A => A.deliver && A.deliver(6, false));
+    });
+    outBtn && outBtn.addEventListener('click', e => {
+      e.preventDefault(); e.stopPropagation();
+      cricket(A => A.deliver && A.deliver(0, true));
+    });
+
+    // ── Player role buttons ──────────────────────────────
     const playerRow = document.getElementById('playerRow');
     const waitP = setInterval(() => {
       if (!window.PlayerControl || !window.PlayerControl.roles) return;
       clearInterval(waitP);
-      window.PlayerControl.roles.forEach(role => {
+      const roles = window.PlayerControl.roles;
+      roles.forEach(role => {
         const b = document.createElement('button');
-        b.textContent = role.length > 10 ? role.slice(0,9)+'…' : role;
+        b.textContent = role.length > 11 ? role.slice(0,10)+'…' : role;
         b.title = role;
         b.addEventListener('click', e => {
           e.preventDefault(); e.stopPropagation();
           window.PlayerControl.select(role);
           playerRow.querySelectorAll('button').forEach(x => x.classList.remove('on'));
           b.classList.add('on');
+          if (window.showToast) window.showToast('→ ' + role);
         });
         playerRow.appendChild(b);
       });
       if (playerRow.firstChild) playerRow.firstChild.classList.add('on');
     }, 200);
 
-    console.log('[menu] ready');
+    console.log('[menu] ✅ ready');
   })();
 </script>
 </body>
