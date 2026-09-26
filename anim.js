@@ -576,4 +576,356 @@
     // ═══════════════════════════════════════════════════════
     //  UMPIRE SIGNAL
     // ═══════════════════════════════════════════════════════
-    function animateSignal(p,
+    function animateSignal(p, type){
+      if (!umpBowl) return;
+      const up   = Math.min(1, p * 4);
+      const down = Math.max(0, 1 - (p - 0.65) / 0.35);
+      const a    = Math.min(up, down);
+
+      if (type === 'four'){
+        umpBowl.rotation.y = lerp(0, -0.9, easeInOut(a));
+      } else if (type === 'six'){
+        umpBowl.rotation.x = lerp(0, -0.35, easeInOut(a));
+      } else {
+        umpBowl.rotation.x = lerp(0, 0.25, easeInOut(a));
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════
+    //  FIELDER CHASE
+    // ═══════════════════════════════════════════════════════
+    let chasingFielder = null;
+
+    function pickChaser(hitX, hitZ){
+      let closest = fielders[0], minD = Infinity;
+      fielders.forEach(f => {
+        const h = home[f.name] ? home[f.name].pos : f.position;
+        const d = Math.hypot(h.x - hitX, h.z - hitZ);
+        if (d < minD){ minD = d; closest = f; }
+      });
+      chasingFielder = closest;
+    }
+
+    function updateChaser(dt){
+      if (!chasingFielder) return;
+      const cf = chasingFielder;
+      const dx = ball.pos.x - cf.position.x;
+      const dz = ball.pos.z - cf.position.z;
+      const dist = Math.hypot(dx, dz);
+
+      if (dist > 0.5){
+        const speed = 6 * dt;
+        cf.position.x += (dx / dist) * Math.min(speed, dist);
+        cf.position.z += (dz / dist) * Math.min(speed, dist);
+        cf.position.y = fieldY + Math.abs(Math.sin(performance.now() * 0.02)) * 0.12;
+        cf.rotation.x = 0.15;
+      } else {
+        cf.position.y = fieldY;
+        cf.rotation.x = 0;
+        chasingFielder = null;
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════
+    //  RESET
+    // ═══════════════════════════════════════════════════════
+    function resetAll(t){
+      const e = easeInOut(t);
+      Object.keys(players).forEach(role => {
+        const p = players[role];
+        const h = home[role];
+        if (!h) return;
+        p.position.lerp(h.pos, e * 0.08);
+        p.rotation.x = lerp(p.rotation.x, h.rotX, e * 0.08);
+        p.rotation.y = lerp(p.rotation.y, h.rotY, e * 0.08);
+      });
+      if (strikerBat){
+        strikerBat.rotation.x = lerp(strikerBat.rotation.x, batRest.x, e * 0.1);
+        strikerBat.rotation.z = lerp(strikerBat.rotation.z, batRest.z, e * 0.1);
+      }
+      if (keeper) keeper.rotation.x = lerp(keeper.rotation.x, 0, e * 0.1);
+    }
+
+    // ═══════════════════════════════════════════════════════
+    //  WALK BACK
+    // ═══════════════════════════════════════════════════════
+    function animateWalkBack(p){
+      const e = easeInOut(p);
+      bowler.position.x = lerp(0.55, 1.2, e);
+      bowler.position.z = lerp(BOWLER_RELEASE_Z, BOWLER_START_Z, e);
+      bowler.position.y = fieldY + Math.abs(Math.sin(p * Math.PI * 6)) * 0.05;
+      bowler.rotation.x = 0.05;
+      bowler.rotation.y = lerp(0, Math.PI * 0.15, e);
+    }
+
+    // ═══════════════════════════════════════════════════════
+    //  UI
+    // ═══════════════════════════════════════════════════════
+    let bannerEl = document.getElementById('cm-banner');
+    function showBanner(text, color){
+      if (!bannerEl) return;
+      bannerEl.textContent = text;
+      bannerEl.style.color = color;
+      bannerEl.style.textShadow = '0 0 60px ' + color + ', 0 8px 24px rgba(0,0,0,.95)';
+      bannerEl.style.transform = 'translate(-50%, 0) scale(1)';
+      bannerEl.style.opacity = '1';
+      clearTimeout(bannerEl._hideT);
+      bannerEl._hideT = setTimeout(() => {
+        bannerEl.style.opacity = '0';
+        bannerEl.style.transform = 'translate(-50%, -30px) scale(0.9)';
+      }, 2200);
+    }
+
+    let flashEl = document.getElementById('cm-flash');
+    function flash(color, duration){
+      if (!flashEl) return;
+      flashEl.style.background = color;
+      flashEl.style.opacity = '0.45';
+      setTimeout(() => { flashEl.style.opacity = '0'; }, duration || 300);
+    }
+
+    let shakeUntil = 0, shakeAmp = 0;
+    function cameraShake(amp, duration){
+      shakeUntil = performance.now() + duration;
+      shakeAmp = amp;
+    }
+    function applyShake(now){
+      if (now > shakeUntil){ shakeAmp = 0; return; }
+      const decay = (shakeUntil - now) / 1000;
+      const a = shakeAmp * decay;
+      SV.camera.position.x += (Math.random() - 0.5) * a;
+      SV.camera.position.y += (Math.random() - 0.5) * a;
+    }
+
+    // ═══════════════════════════════════════════════════════
+    //  MAIN LOOP
+    // ═══════════════════════════════════════════════════════
+    let lastFrameTime = performance.now();
+
+    function tick(now){
+      requestAnimationFrame(tick);
+      const dt = Math.min((now - lastFrameTime) / 1000, 0.05);
+      lastFrameTime = now;
+
+      applyShake(now);
+      if (paused) return;
+
+      const elapsed = now - phaseStart;
+
+      // Ball + trail
+      if (ball.active){
+        updateBall(dt);
+        if (trail.visible) trailPush(ball.pos);
+        if (chasingFielder) updateChaser(dt);
+      }
+
+      switch(phase){
+
+        case PHASE.IDLE: {
+          animateIdle(now);
+          if (elapsed > DURATIONS.idle) setPhase(PHASE.GUARD);
+          break;
+        }
+
+        case PHASE.GUARD: {
+          const p = Math.min(1, elapsed / DURATIONS.guard);
+          animateGuard(p);
+          if (p >= 1) setPhase(PHASE.MARK_RUNUP);
+          break;
+        }
+
+        case PHASE.MARK_RUNUP: {
+          const p = Math.min(1, elapsed / DURATIONS.mark_runup);
+          animateMarkRunup(p);
+          if (p >= 1) setPhase(PHASE.RUNUP);
+          break;
+        }
+
+        case PHASE.RUNUP: {
+          const p = Math.min(1, elapsed / DURATIONS.runup);
+          animateRunup(p);
+          if (p >= 1) setPhase(PHASE.DELIVERY);
+          break;
+        }
+
+        case PHASE.DELIVERY: {
+          const p = Math.min(1, elapsed / DURATIONS.delivery);
+          animateDelivery(p);
+          if (p >= 1){
+            launchDelivery();
+            setPhase(PHASE.INBOUND);
+          }
+          break;
+        }
+
+        case PHASE.INBOUND: {
+          const ballPastBat = ball.pos.z > striker.position.z + 0.5;
+          const batContact  = checkBatContact();
+          if (batContact || ballPastBat || elapsed > DURATIONS.inbound){
+            ball.active = false;
+            flightBall.visible = false;
+            setPhase(PHASE.SWING);
+          }
+          break;
+        }
+
+        case PHASE.SWING: {
+          const p = Math.min(1, elapsed / DURATIONS.swing);
+          animateSwing(p);
+          if (p >= 0.55 && !outcome){
+            outcome = customOutcome || rollOutcome();
+            customOutcome = null;
+          }
+          if (p >= 1){
+            launchHit(outcome);
+            setPhase(PHASE.OUTBOUND);
+          }
+          break;
+        }
+
+        case PHASE.OUTBOUND: {
+          if (!phaseData._bannerShown){
+            phaseData._bannerShown = true;
+            if (outcome.wicket){
+              showBanner('OUT!', '#ef4444');
+              flash('#7f1d1d', 400);
+              cameraShake(1.5, 500);
+              if (SV.stumpsStriker) SV.stumpsStriker.rotation.x = -0.7;
+            } else if (outcome.runs === 6){
+              showBanner('SIX!', '#ff6d00');
+              flash('#ff6d00', 350);
+              cameraShake(2.0, 600);
+            } else if (outcome.runs === 4){
+              showBanner('FOUR!', '#22d3ee');
+              flash('#22d3ee', 300);
+              cameraShake(1.2, 400);
+            } else if (outcome.runs > 0){
+              showBanner(outcome.runs + ' RUN' + (outcome.runs > 1 ? 'S' : ''), '#00e676');
+            }
+          }
+
+          if (outcome.runs > 0 && outcome.runs < 4 && !phaseData._chaserPicked){
+            phaseData._chaserPicked = true;
+            pickChaser(ball.pos.x, ball.pos.z);
+          }
+
+          const ballStopped     = !ball.active;
+          const crossedBoundary = Math.hypot(ball.pos.x, ball.pos.z) > BOUNDARY_R;
+          const ballFlew        = outcome.runs === 6 && elapsed > 3500;
+
+          if (ballStopped || crossedBoundary || ballFlew){
+            trailStop();
+            if (outcome.runs > 0 && outcome.runs < 4 && !outcome.wicket){
+              setPhase(PHASE.RUNNING, { runs: outcome.runs });
+            } else {
+              setPhase(PHASE.SIGNAL);
+            }
+          }
+          break;
+        }
+
+        case PHASE.RUNNING: {
+          const runs = phaseData.runs;
+          const dur  = runs * 1200;
+          const p    = Math.min(1, elapsed / dur);
+          animateRunning(runs, p * runs);
+          if (p >= 1){
+            settleAfterRuns(runs);
+            setPhase(PHASE.SIGNAL);
+          }
+          break;
+        }
+
+        case PHASE.SIGNAL: {
+          const p = Math.min(1, elapsed / DURATIONS.signal);
+          let sigType = 'out';
+          if (outcome.runs === 4) sigType = 'four';
+          else if (outcome.runs === 6) sigType = 'six';
+          animateSignal(p, sigType);
+          if (p >= 1) setPhase(PHASE.RESET);
+          break;
+        }
+
+        case PHASE.RESET: {
+          const p = Math.min(1, elapsed / DURATIONS.reset);
+          resetAll(p);
+          if (p >= 1){
+            ball.active = false;
+            flightBall.visible = false;
+            trailStop();
+            if (SV.stumpsStriker) SV.stumpsStriker.rotation.x = 0;
+            ballCount++;
+            if (ballCount >= 6) ballCount = 0;
+            setPhase(PHASE.WALK_BACK);
+          }
+          break;
+        }
+
+        case PHASE.WALK_BACK: {
+          const p = Math.min(1, elapsed / DURATIONS.walk_back);
+          animateWalkBack(p);
+          if (p >= 1){
+            outcome = null;
+            setPhase(PHASE.IDLE);
+          }
+          break;
+        }
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════
+    //  KICKOFF
+    // ═══════════════════════════════════════════════════════
+    console.log('[Anim] ✅ Advanced engine ready');
+    requestAnimationFrame(tick);
+
+    window.StadiumAnim = {
+      deliver: function(runs, wicket){
+        if (phase !== PHASE.IDLE && phase !== PHASE.WALK_BACK &&
+            phase !== PHASE.GUARD && phase !== PHASE.MARK_RUNUP){
+          console.warn('[Anim] Not idle — phase=' + phase);
+          return false;
+        }
+        if (runs !== undefined){
+          customOutcome = {
+            runs: runs || 0,
+            wicket: !!wicket,
+            boundary: (runs === 4 || runs === 6)
+          };
+        }
+        setPhase(PHASE.RUNUP);
+        return true;
+      },
+      setNextOutcome: function(runs, wicket){
+        customOutcome = {
+          runs: runs || 0,
+          wicket: !!wicket,
+          boundary: (runs === 4 || runs === 6)
+        };
+      },
+      currentPhase: function(){ return phase; },
+      pause:  function(){ paused = true;  },
+      resume: function(){ paused = false; },
+      forceIdle: function(){
+        ball.active = false;
+        flightBall.visible = false;
+        trailStop();
+        outcome = null;
+        setPhase(PHASE.IDLE);
+      }
+    };
+  }
+
+  // ─── Wait for stadium + players ready ──────────────────────
+  const wait = setInterval(function(){
+    if (window.StadiumView &&
+        window.StadiumView.players &&
+        window.StadiumView.players['Bowler'] &&
+        window.PlayerControl &&
+        window.PlayerControl.players['Bowler']){
+      clearInterval(wait);
+      setTimeout(boot, 500);
+    }
+  }, 200);
+
+})();
