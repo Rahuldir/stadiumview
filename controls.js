@@ -18,7 +18,6 @@
   const R_MIN   = 3;
   const R_MAX   = 180;
 
-  // ✅ Accepts 0 as a valid ground height
   function currentFieldY(){
     const f = SV && SV.fieldY;
     if (typeof f === 'number' && isFinite(f)) return f;
@@ -46,9 +45,9 @@
   // ─── 14 View definitions ─────────────────────────────────
   const VIEW_DEFS = {
     overview: { x: 0,    y: 10,  z: 0,   th: Math.PI * 0.25,  ph: Math.PI * 0.30, r: 160 },
-    tv:       { x: 0,    y: 4,   z: 0,   th: 0,               ph: Math.PI * 0.42, r: 60  },
-    tvlong:   { x: 0,    y: 4,   z: 0,   th: 0,               ph: Math.PI * 0.42, r: 90  },
-    tvhigh:   { x: 0,    y: 4,   z: 0,   th: 0,               ph: Math.PI * 0.28, r: 65  },
+    tv:       { x: 0,    y: 2,   z: 0,   th: -Math.PI * 0.5,  ph: Math.PI * 0.44, r: 34  },
+    tvlong:   { x: 0,    y: 2,   z: 0,   th: -Math.PI * 0.5,  ph: Math.PI * 0.45, r: 55  },
+    tvhigh:   { x: 0,    y: 4,   z: 0,   th: -Math.PI * 0.5,  ph: Math.PI * 0.28, r: 60  },
     bowler:   { x: 0,    y: 2,   z: 8.6, th: -Math.PI * 0.50, ph: Math.PI * 0.42, r: 32  },
     batsman:  { x: 0.4,  y: 2,   z: 8.6, th: Math.PI * 0.50,  ph: Math.PI * 0.42, r: 12  },
     batting:  { x: 0.4,  y: 2,   z: 8.6, th: Math.PI * 0.50,  ph: Math.PI * 0.42, r: 12  },
@@ -111,23 +110,23 @@
     if (scene.background && scene.background.setHex) scene.background.setHex(bgHex);
 
     if (mode === 'day'){
-      if (ambient) ambient.intensity = 0.8;
-      if (hemi)    hemi.intensity    = 0.6;
-      if (sun){ sun.intensity = 1.5; sun.color.setHex(0xffffff); sun.position.set(80, 400, 80); }
+      if (ambient) ambient.intensity = 1.6;
+      if (hemi)    hemi.intensity    = 1.0;
+      if (sun){ sun.intensity = 2.2; sun.color.setHex(0xffffff); sun.position.set(60, 200, 40); }
       if (SV && SV.setFloodlights) SV.setFloodlights(0);
-      if (renderer) renderer.toneMappingExposure = 1.0;
+      if (renderer) renderer.toneMappingExposure = 1.4;
     } else if (mode === 'sunset'){
-      if (ambient) ambient.intensity = 0.4;
-      if (hemi)    hemi.intensity    = 0.35;
-      if (sun){ sun.intensity = 0.9; sun.color.setHex(0xff8855); sun.position.set(300, 60, -200); }
+      if (ambient) ambient.intensity = 0.9;
+      if (hemi)    hemi.intensity    = 0.6;
+      if (sun){ sun.intensity = 1.3; sun.color.setHex(0xff8855); sun.position.set(300, 60, -200); }
       if (SV && SV.setFloodlights) SV.setFloodlights(0.4);
-      if (renderer) renderer.toneMappingExposure = 0.95;
+      if (renderer) renderer.toneMappingExposure = 1.2;
     } else {
-      if (ambient) ambient.intensity = 0.05;
-      if (hemi)    hemi.intensity    = 0.08;
+      if (ambient) ambient.intensity = 0.25;
+      if (hemi)    hem i.intensity   = 0.20;
       if (sun)     sun.intensity     = 0;
       if (SV && SV.setFloodlights) SV.setFloodlights(1);
-      if (renderer) renderer.toneMappingExposure = 0.95;
+      if (renderer) renderer.toneMappingExposure = 1.1;
     }
 
     document.querySelectorAll('#timeRow button').forEach(function(b){
@@ -161,7 +160,6 @@
 
       const canvas = renderer.domElement;
 
-      // Drag
       let dragging = false, lastX = 0, lastY = 0;
       canvas.addEventListener('pointerdown', e => {
         dragging = true; lastX = e.clientX; lastY = e.clientY;
@@ -177,14 +175,12 @@
       canvas.addEventListener('pointerleave',  () => dragging = false);
       canvas.addEventListener('pointercancel', () => dragging = false);
 
-      // Wheel
       canvas.addEventListener('wheel', e => {
         e.preventDefault();
         _radius = clampR(_radius + e.deltaY * 0.5);
         updateCamera();
       }, { passive: false });
 
-      // Pinch
       let pinchDist = 0;
       canvas.addEventListener('touchstart', e => {
         if (e.touches.length === 2){
@@ -205,7 +201,6 @@
       }, { passive: true });
       canvas.addEventListener('touchend', () => pinchDist = 0);
 
-      // Space toggles Director
       document.addEventListener('keydown', e => {
         if (e.code === 'Space' && !e.repeat){
           const tag = (e.target && e.target.tagName) || '';
@@ -216,7 +211,6 @@
         }
       });
 
-      // Initial
       window.__applyView('tv');
       window.__setTime('day');
 
