@@ -1,16 +1,15 @@
 /* ══════════════════════════════════════════════════════════════
-   StadiumView — scene builder
-   • Loads: stadium.glb · newplayer.glb · bat.glb · stump.glb
-   • All 4 GLBs loaded in parallel up front (fast loading)
-   • Real stump.glb at both ends
-   • Bats attached synchronously (no timing race)
-   • fieldY auto-detected via raycast (≈ 7.20)
-   • Stadium materials untouched → grass + pitch stay visible
+   StadiumView — final scene builder
+   • Loads stadium.glb · newplayer.glb · bat.glb · stump.glb in parallel
+   • Real stumps from stump.glb (fallback to procedural if missing)
+   • Bats attached synchronously (no race with players.js)
+   • Stadium materials NEVER touched — grass + pitch stay visible
+   • fieldY auto-detected via raycast (~7.20)
    ══════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
 
-  console.log('%c[stadium.js] start · v5.0', 'color:#00e676;font-weight:bold');
+  console.log('%c[stadium.js] v5.0-final', 'color:#00e676;font-weight:bold');
 
   const ua = navigator.userAgent || '';
   const IS_MOBILE =
@@ -50,6 +49,7 @@
     { role:'Fine Leg',            x:-15,  z: 22,  rotY:Math.PI*1.15                 }
   ];
 
+  // ─── Scene ────────────────────────────────────────────────
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x87b8e0);
   scene.fog = null;
@@ -75,30 +75,17 @@
   sun.position.set(80, 400, 80);
   scene.add(sun);
 
-  // ─── Loader ────────────────────────────────────────────────
+  // ─── Loader ───────────────────────────────────────────────
   const loader = new THREE.GLTFLoader();
-
-  if (THREE.DRACOLoader){
-    const draco = new THREE.DRACOLoader();
-    draco.setDecoderPath('https://unpkg.com/three@0.176.0/examples/jsm/libs/draco/');
-    loader.setDRACOLoader(draco);
-    console.log('[Loader] DRACO attached ✅');
-  }
-  if (THREE.MeshoptDecoder){
-    loader.setMeshoptDecoder(THREE.MeshoptDecoder);
-    console.log('[Loader] Meshopt attached ✅');
-  }
-  if (THREE.KTX2Loader){
+  if (typeof THREE.DRACOLoader === 'function'){
     try {
-      const ktx2 = new THREE.KTX2Loader();
-      ktx2.setTranscoderPath('https://unpkg.com/three@0.176.0/examples/jsm/libs/basis/');
-      ktx2.detectSupport(renderer);
-      loader.setKTX2Loader(ktx2);
-      console.log('[Loader] KTX2 attached ✅');
+      const draco = new THREE.DRACOLoader();
+      draco.setDecoderPath('https://unpkg.com/three@0.176.0/examples/jsm/libs/draco/');
+      loader.setDRACOLoader(draco);
+      console.log('[Loader] DRACO attached ✅');
     } catch(e){}
   }
 
-  // ─── Progress bar (4 models total) ────────────────────────
   const progress = { total: 4, done: 0 };
   function tickProgress(){
     progress.done++;
@@ -113,18 +100,18 @@
       loader.load(url, function(gltf){
         const m = gltf.scene || gltf.scenes[0];
         if (m && !m.name) m.name = key;
-        console.log('[loaded]', key);
+        console.log('[Loaded] ' + key);
         tickProgress();
         resolve(m);
       }, undefined, function(err){
-        console.warn('[FAILED]', key, err && err.message ? err.message : err);
+        console.warn('[Failed] ' + key, err && err.message ? err.message : err);
         tickProgress();
         resolve(null);
       });
     });
   }
 
-  // ─── Helpers ───────────────────────────────────────────────
+  // ─── Helpers ──────────────────────────────────────────────
   function scaleToHeight(model, targetHeight){
     model.updateMatrixWorld(true);
     let box = new THREE.Box3().setFromObject(model);
@@ -172,6 +159,14 @@
       }
     });
   }
+  function scaleAndClone(sourceModel, targetHeight){
+    const clone = THREE.SkeletonUtils && THREE.SkeletonUtils.clone
+      ? THREE.SkeletonUtils.clone(sourceModel)
+      : sourceModel.clone(true);
+    scaleToHeight(clone, targetHeight);
+    forceVisible(clone);
+    return clone;
+  }
 
   function findFieldLevel(stadium){
     const raycaster = new THREE.Raycaster();
@@ -200,6 +195,18 @@
       new THREE.MeshStandardMaterial({ color: 0x991b1b, roughness: 0.5 })
     );
   }
+  function makeStumps(){
+    const g = new THREE.Group();
+    const mat = new THREE.MeshStandardMaterial({ color: 0xefe2c0, roughness: 0.7 });
+    [-0.11, 0, 0.11].forEach(function(x){
+      const s = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.019, 0.019, STUMPS_HEIGHT, 8), mat
+      );
+      s.position.set(x, STUMPS_HEIGHT/2, 0);
+      g.add(s);
+    });
+    return g;
+  }
 
   let fieldY = 7.20;
   let stadiumModel = null;
@@ -210,13 +217,13 @@
     stadiumModel = model;
     scaleToMaxDim(model, STADIUM_SIZE);
     bottomToZero(model);
-    model.position.set(0,0,0);
+    model.position.set(0, 0, 0);
     scene.add(model);
 
     fieldY = findFieldLevel(model);
     console.log('[Raycast] grass y=' + fieldY.toFixed(2));
 
-    // Shadows off only — DO NOT touch materials (keeps grass/pitch visible)
+    // Shadows off only — NEVER touch materials (keeps grass/pitch visible)
     model.traverse(function(c){
       if (c.isMesh){ c.castShadow = false; c.receiveShadow = false; }
     });
@@ -226,7 +233,7 @@
     stadiumRadius = Math.max(sz.x, sz.z) * 0.6;
   }
 
-  // ─── Floodlights ───────────────────────────────────────────
+  // ─── Floodlights ──────────────────────────────────────────
   const floodLights = [];
 
   function attachFloodlight(x, z){
@@ -275,7 +282,9 @@
 
   function buildFloodlights(){
     const R = TOWER_XZ;
-    [[R,R],[-R,R],[R,-R],[-R,-R]].forEach(function(p){ attachFloodlight(p[0], p[1]); });
+    [[R,R],[-R,R],[R,-R],[-R,-R]].forEach(function(p){
+      attachFloodlight(p[0], p[1]);
+    });
   }
 
   function buildAdBoards(){
@@ -294,9 +303,7 @@
     }
   }
 
-  // ═══════════════════════════════════════════════════════════
-  //  PLAYERS
-  // ═══════════════════════════════════════════════════════════
+  // ─── Players ──────────────────────────────────────────────
   const playerRefs = {};
   const accessoryRefs = {};
 
@@ -308,34 +315,19 @@
       group.name = 'PLAYER_' + pos.role.replace(/[^a-z0-9]/gi,'_');
       group.userData.role = pos.role;
 
-      // ── Player clone ───────────────────────────────────
-      const pm = THREE.SkeletonUtils && THREE.SkeletonUtils.clone
-        ? THREE.SkeletonUtils.clone(playerGLB)
-        : playerGLB.clone(true);
-
-      pm.position.set(0,0,0);
-      pm.rotation.set(0,0,0);
-      pm.scale.set(1,1,1);
-      scaleToHeight(pm, PLAYER_HEIGHT);
-      forceVisible(pm);
+      // Player clone
+      const pm = scaleAndClone(playerGLB, PLAYER_HEIGHT);
       group.add(pm);
 
-      // ── Bat (attached synchronously — batGLB already loaded) ──
+      // Bat (synchronous — batGLB already loaded)
       if (pos.hasBat && batGLB){
-        const bat = THREE.SkeletonUtils && THREE.SkeletonUtils.clone
-          ? THREE.SkeletonUtils.clone(batGLB)
-          : batGLB.clone(true);
-        forceVisible(bat);
-        scaleToHeight(bat, BAT_LENGTH);
-        bat.position.set(-0.35, 0.95, 0.25);
-        bat.rotation.x = -0.7;
-        bat.rotation.z = 0.15;
+        const bat = scaleAndClone(batGLB, BAT_LENGTH);
         group.add(bat);
         accessoryRefs[pos.role] = accessoryRefs[pos.role] || {};
         accessoryRefs[pos.role].bat = bat;
       }
 
-      // ── Ball ───────────────────────────────────────────
+      // Ball (bowler only)
       if (pos.hasBall){
         const ball = makeBall();
         ball.position.set(0.35, 1.35, 0.20);
@@ -354,9 +346,7 @@
                 ' placed @ y=' + fieldY.toFixed(2));
   }
 
-  // ═══════════════════════════════════════════════════════════
-  //  BOOT  — load all 4 GLBs in parallel
-  // ═══════════════════════════════════════════════════════════
+  // ─── Boot ─────────────────────────────────────────────────
   async function boot(){
     console.log('[Boot] loading all 4 models in parallel');
 
@@ -367,35 +357,13 @@
       loadOne('stump',   STUMP_FILE)
     ]);
 
-    // ── Stadium ───────────────────────────────────────────
     placeStadium(stadiumGLB);
-
-    // ── Floodlights + Ad boards ───────────────────────────
     buildFloodlights();
     buildAdBoards();
 
-    // ── Stumps (real stump.glb, one at each end) ──────────
+    // Stumps — real stump.glb or procedural fallback
     function placeStumps(z){
-      if (stumpGLB){
-        const g = THREE.SkeletonUtils && THREE.SkeletonUtils.clone
-          ? THREE.SkeletonUtils.clone(stumpGLB)
-          : stumpGLB.clone(true);
-        forceVisible(g);
-        scaleToHeight(g, STUMPS_HEIGHT);
-        g.position.set(0, fieldY, z);
-        scene.add(g);
-        return g;
-      }
-      // Fallback: procedural
-      const g = new THREE.Group();
-      const mat = new THREE.MeshStandardMaterial({ color: 0xefe2c0, roughness: 0.7 });
-      [-0.11, 0, 0.11].forEach(function(x){
-        const s = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.019, 0.019, STUMPS_HEIGHT, 8), mat
-        );
-        s.position.set(x, STUMPS_HEIGHT/2, 0);
-        g.add(s);
-      });
+      const g = stumpGLB ? scaleAndClone(stumpGLB, STUMPS_HEIGHT) : makeStumps();
       g.position.set(0, fieldY, z);
       scene.add(g);
       return g;
@@ -403,10 +371,8 @@
     const stumpsA = placeStumps( 10);
     const stumpsB = placeStumps(-10);
 
-    // ── Players (bats attached synchronously now) ─────────
     placePlayers(playerGLB, batGLB);
 
-    // ── Public API ────────────────────────────────────────
     window.StadiumView = {
       scene, camera, renderer, sun, hemi, ambient,
       stadiumModel, stadiumRadius, fieldY,
@@ -419,7 +385,7 @@
       setFloodlights: function(v){ floodLights.forEach(function(f){ f.setGlow(v); }); }
     };
 
-    console.log('[StadiumView] ✅ Ready. fieldY=' + fieldY.toFixed(2) +
+    console.log('[StadiumView] ✅ Ready · fieldY=' + fieldY.toFixed(2) +
                 ' · players=' + Object.keys(playerRefs).length);
   }
 
