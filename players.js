@@ -1,8 +1,9 @@
 /* ══════════════════════════════════════════════════════════════
    Player kinematics:
-   • Arms-down bake (world-space bone pointing)
-   • Walk cycle on movement
+   • Arms-down bake  (world-space bone pointing)
+   • Walk cycle driven by group movement
    • Bat + ball locked to right hand
+   Exposes: window.PlayerControl
    ══════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
@@ -13,19 +14,18 @@
     const P = window.StadiumView && window.StadiumView.players;
     if (!P || Object.keys(P).length < 5) return;
     clearInterval(wait);
-    setTimeout(boot, 400);
+    setTimeout(boot, 300);
   }, 200);
 
   function boot(){
-    const SV = window.StadiumView;
-    const raw = SV.players;
+    const SV          = window.StadiumView;
+    const raw         = SV.players;
     const accessories = SV.accessories || {};
-    const roles = Object.keys(raw);
-    const players = {};
+    const roles       = Object.keys(raw);
+    const players     = {};
+    const AX          = new THREE.Vector3(1,0,0);
 
-    const AX = new THREE.Vector3(1,0,0);
-
-    // ─── Bone finder ────────────────────────────────────
+    // ─── Bone finder ────────────────────────────────────────
     function findBone(group, patterns){
       let found = null;
       group.traverse(c => {
@@ -37,36 +37,27 @@
       return found;
     }
 
-    function findAnyBone(group, nameList){
-      // nameList: array of {key, patterns}
-      const out = {};
-      nameList.forEach(item => {
-        out[item.key] = findBone(group, item.patterns);
-      });
-      return out;
-    }
-
     const BONE_MAP = [
-      { key:'hips',     patterns:['hips','pelvis'] },
-      { key:'spine',    patterns:['spine'] },
-      { key:'chest',    patterns:['chest','spine2','spine1'] },
-      { key:'neck',     patterns:['neck'] },
-      { key:'head',     patterns:['head'] },
-      { key:'lUpperArm',patterns:['leftarm','left_arm','l_upperarm','upperarm_l','arm_l'] },
-      { key:'rUpperArm',patterns:['rightarm','right_arm','r_upperarm','upperarm_r','arm_r'] },
-      { key:'lForeArm', patterns:['leftforearm','left_forearm','l_lowerarm','forearm_l','lowerarm_l'] },
-      { key:'rForeArm', patterns:['rightforearm','right_forearm','r_lowerarm','forearm_r','lowerarm_r'] },
-      { key:'lHand',    patterns:['lefthand','left_hand','l_hand','hand_l','hand.l'] },
-      { key:'rHand',    patterns:['righthand','right_hand','r_hand','hand_r','hand.r'] },
-      { key:'lThigh',   patterns:['leftthigh','left_thigh','l_thigh','thigh_l'] },
-      { key:'rThigh',   patterns:['rightthigh','right_thigh','r_thigh','thigh_r'] },
-      { key:'lShin',    patterns:['leftshin','left_lowerleg','l_shin','shin_l','calf_l'] },
-      { key:'rShin',    patterns:['rightshin','right_lowerleg','r_shin','shin_r','calf_r'] },
-      { key:'lFoot',    patterns:['leftfoot','left_foot','l_foot','foot_l'] },
-      { key:'rFoot',    patterns:['rightfoot','right_foot','r_foot','foot_r'] }
+      { key:'hips',      patterns:['hips','pelvis'] },
+      { key:'spine',     patterns:['spine'] },
+      { key:'chest',     patterns:['chest','spine2','spine1'] },
+      { key:'neck',      patterns:['neck'] },
+      { key:'head',      patterns:['head'] },
+      { key:'lUpperArm', patterns:['leftarm','left_arm','l_upperarm','upperarm_l','arm_l'] },
+      { key:'rUpperArm', patterns:['rightarm','right_arm','r_upperarm','upperarm_r','arm_r'] },
+      { key:'lForeArm',  patterns:['leftforearm','left_forearm','l_lowerarm','forearm_l','lowerarm_l'] },
+      { key:'rForeArm',  patterns:['rightforearm','right_forearm','r_lowerarm','forearm_r','lowerarm_r'] },
+      { key:'lHand',     patterns:['lefthand','left_hand','l_hand','hand_l','hand.l'] },
+      { key:'rHand',     patterns:['righthand','right_hand','r_hand','hand_r','hand.r'] },
+      { key:'lThigh',    patterns:['leftthigh','left_thigh','l_thigh','thigh_l'] },
+      { key:'rThigh',    patterns:['rightthigh','right_thigh','r_thigh','thigh_r'] },
+      { key:'lShin',     patterns:['leftshin','left_lowerleg','l_shin','shin_l','calf_l'] },
+      { key:'rShin',     patterns:['rightshin','right_lowerleg','r_shin','shin_r','calf_r'] },
+      { key:'lFoot',     patterns:['leftfoot','left_foot','l_foot','foot_l'] },
+      { key:'rFoot',     patterns:['rightfoot','right_foot','r_foot','foot_r'] }
     ];
 
-    // ─── Arm-down bake ──────────────────────────────────
+    // ─── Bake arms straight down ────────────────────────────
     const _p1 = new THREE.Vector3(), _p2 = new THREE.Vector3();
     const _targetDown = new THREE.Vector3(0, -1, 0);
 
@@ -74,9 +65,8 @@
       if (!bone) return false;
       let child = null;
       for (let i = 0; i < bone.children.length; i++){
-        if (bone.children[i].isBone || bone.children[i].type === 'Bone'){
-          child = bone.children[i]; break;
-        }
+        const c = bone.children[i];
+        if (c.isBone || c.type === 'Bone'){ child = c; break; }
       }
       if (!child) return false;
       bone.updateWorldMatrix(true, false);
@@ -87,7 +77,7 @@
       if (dir.lengthSq() < 1e-8) return false;
       dir.normalize();
       const wrot = new THREE.Quaternion().setFromUnitVectors(dir, _targetDown);
-      const pq = new THREE.Quaternion();
+      const pq   = new THREE.Quaternion();
       if (bone.parent) bone.parent.getWorldQuaternion(pq);
       const newQ = pq.clone().invert()
         .multiply(wrot)
@@ -98,14 +88,13 @@
       return true;
     }
 
-    // ══════════════════════════════════════════════════
-    //  SETUP each player
-    // ══════════════════════════════════════════════════
+    // ─── Setup each player ──────────────────────────────────
     roles.forEach(role => {
       const group = raw[role];
-      const bones = findAnyBone(group, BONE_MAP);
+      const bones = {};
+      BONE_MAP.forEach(item => { bones[item.key] = findBone(group, item.patterns); });
 
-      // Bake arms down
+      // Arms-down bake
       if (bones.lUpperArm) pointBoneDown(bones.lUpperArm);
       if (bones.rUpperArm) pointBoneDown(bones.rUpperArm);
 
@@ -125,8 +114,7 @@
         bones.rHand.getWorldQuaternion(hq);
         bat.position.copy(hp);
         bat.quaternion.copy(hq);
-        bat.rotateX(0.5);   // tilt blade forward
-        // Shift so handle-top sits in palm
+        bat.rotateX(0.5);
         const off = new THREE.Vector3(0, 0.96, 0).applyQuaternion(bat.quaternion);
         bat.position.sub(off);
         bat.updateMatrixWorld(true);
@@ -144,7 +132,9 @@
       players[role] = {
         role, group, bones, rest,
         home: {
-          x: group.position.x, y: group.position.y, z: group.position.z,
+          x: group.position.x,
+          y: group.position.y,
+          z: group.position.z,
           rotY: group.rotation.y
         },
         lastX: group.position.x,
@@ -157,11 +147,8 @@
 
     console.log('[players.js]', Object.keys(players).length, 'ready');
 
-    // ══════════════════════════════════════════════════
-    //  Walk cycle + accessory lock
-    // ══════════════════════════════════════════════════
+    // ─── Walk cycle helpers ─────────────────────────────────
     const _q = new THREE.Quaternion();
-
     function applyRot(bone, axis, angle){
       if (!bone) return;
       _q.setFromAxisAngle(axis, angle);
@@ -169,7 +156,6 @@
     }
 
     function updateWalk(p, dt){
-      // Movement delta
       const dx = p.group.position.x - p.lastX;
       const dz = p.group.position.z - p.lastZ;
       const inst = dt > 0 ? Math.hypot(dx, dz) / dt : 0;
@@ -181,7 +167,7 @@
 
       p.phase += dt * (1.2 + Math.min(2, p.speed) * 1.2) * Math.PI * 2;
       const cyc = p.phase;
-      const s = Math.min(1, p.speed / 3.5);
+      const s   = Math.min(1, p.speed / 3.5);
       const stride = 0.35 + s * 0.45;
 
       // Legs
@@ -192,15 +178,15 @@
       applyRot(p.bones.lFoot,  AX, -Math.cos(cyc) * stride * 0.4);
       applyRot(p.bones.rFoot,  AX,  Math.cos(cyc) * stride * 0.4);
 
-      // Arms counter-swing
-      applyRot(p.bones.lUpperArm, AX, Math.sin(cyc) * stride * (1 + s * 0.3));
-      applyRot(p.bones.rUpperArm, AX, -Math.sin(cyc) * stride * (1 + s * 0.3));
+      // Arms counter-swing (skip if this role is animating a bat/ball)
+      const isStriker = (p.role === 'Striker' || p.role === 'Non-Striker' || p.role === 'Bowler');
+      if (!isStriker){
+        applyRot(p.bones.lUpperArm, AX,  Math.sin(cyc) * stride * (1 + s * 0.3));
+        applyRot(p.bones.rUpperArm, AX, -Math.sin(cyc) * stride * (1 + s * 0.3));
+      }
 
       // Hips counter-rotation
       applyRot(p.bones.hips, new THREE.Vector3(0,1,0), Math.sin(cyc) * 0.1 * (0.5 + s * 0.5));
-
-      // Vertical bob
-      p.group.position.y = p.home.y + Math.abs(Math.sin(cyc)) * 0.05;
 
       return true;
     }
@@ -211,7 +197,6 @@
           c.quaternion.copy(p.rest[c.uuid]);
         }
       });
-      p.group.position.y = p.home.y;
     }
 
     function lockAccessories(p){
@@ -235,9 +220,7 @@
       }
     }
 
-    // ══════════════════════════════════════════════════
-    //  Loop
-    // ══════════════════════════════════════════════════
+    // ─── Main loop ──────────────────────────────────────────
     let last = performance.now();
 
     function tick(now){
@@ -247,18 +230,17 @@
 
       Object.keys(players).forEach(r => {
         const p = players[r];
-        resetRest(p);
-        updateWalk(p, dt);
-        lockAccessories(p);
+        resetRest(p);                 // reset bones to rest
+        updateWalk(p, dt);            // apply walk cycle on top
+        // (anim.js runs later and adds cricket pose on top)
+        lockAccessories(p);           // lock bat/ball to hand
       });
     }
     requestAnimationFrame(tick);
 
-    // ══════════════════════════════════════════════════
-    //  Public API
-    // ══════════════════════════════════════════════════
+    // ─── Keyboard controls ──────────────────────────────────
     let selected = roles[0];
-    const keys = {};
+    const keys   = {};
 
     document.addEventListener('keydown', e => {
       keys[e.code] = true;
@@ -299,10 +281,13 @@
         p.home.x = p.group.position.x;
         p.home.z = p.group.position.z;
         p.group.rotation.y = Math.atan2(dx, dz);
-        if (window.showToast) window.showToast(selected + ' · x=' + p.group.position.x.toFixed(1) + ' z=' + p.group.position.z.toFixed(1));
+        if (window.showToast) window.showToast(
+          selected + ' · x=' + p.group.position.x.toFixed(1) +
+                   ' z=' + p.group.position.z.toFixed(1));
       }
     })();
 
+    // ─── Public API ─────────────────────────────────────────
     window.PlayerControl = {
       players,
       roles,
@@ -317,6 +302,6 @@
       }
     };
 
-    console.log('[PlayerControl] ready —', Object.keys(players).length, 'players');
+    console.log('[PlayerControl] ✅ ready ·', Object.keys(players).length, 'players');
   }
 })();
