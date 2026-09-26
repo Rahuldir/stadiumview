@@ -127,17 +127,22 @@ canvas{display:block}
 
 <script type="module">
   // ═══════════════════════════════════════════════════════════
-  //  Load three.js + addons, expose globally, then load app
+  //  Load three.js + ALL loaders/decoders, expose globally,
+  //  THEN dynamically load the app scripts.
   // ═══════════════════════════════════════════════════════════
   import * as THREE from 'three';
   import { GLTFLoader }     from 'three/addons/loaders/GLTFLoader.js';
   import { DRACOLoader }    from 'three/addons/loaders/DRACOLoader.js';
+  import { KTX2Loader }     from 'three/addons/loaders/KTX2Loader.js';
+  import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
   import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 
   const THREE_NS = { ...THREE };
-  THREE_NS.GLTFLoader    = GLTFLoader;
-  THREE_NS.DRACOLoader   = DRACOLoader;
-  THREE_NS.SkeletonUtils = SkeletonUtils;
+  THREE_NS.GLTFLoader     = GLTFLoader;
+  THREE_NS.DRACOLoader    = DRACOLoader;
+  THREE_NS.KTX2Loader     = KTX2Loader;
+  THREE_NS.MeshoptDecoder = MeshoptDecoder;
+  THREE_NS.SkeletonUtils  = SkeletonUtils;
   window.THREE = THREE_NS;
 
   console.log('[three] r' + THREE.REVISION + ' ready');
@@ -152,12 +157,11 @@ canvas{display:block}
     });
   }
 
-  // ── Load app scripts in dependency order ──────────────────
   try {
-    await loadScript('stadium.js');   // creates window.StadiumView
-    await loadScript('players.js');   // bones + walk cycle → window.PlayerControl
-    await loadScript('controls.js');  // camera views → __applyView / __setTime
-    await loadScript('anim.js');      // cricket animation → window.StadiumAnim
+    await loadScript('stadium.js');
+    await loadScript('players.js');
+    await loadScript('controls.js');
+    await loadScript('anim.js');
     console.log('[boot] ✅ all app scripts loaded');
   } catch(e){
     console.error('[boot] ❌', e);
@@ -168,11 +172,11 @@ canvas{display:block}
   // ═══════════════════════════════════════════════════════════
   (function menuWiring(){
 
-    const subEl   = document.getElementById('loaderSub');
-    const textEl  = document.getElementById('loaderText');
-    const barEl   = document.getElementById('barFill');
-    const lights  = document.querySelectorAll('.light');
-    let   done    = false;
+    const subEl  = document.getElementById('loaderSub');
+    const textEl = document.getElementById('loaderText');
+    const barEl  = document.getElementById('barFill');
+    const lights = document.querySelectorAll('.light');
+    let   done   = false;
 
     function updateLoader(){
       if (done) return;
@@ -184,7 +188,6 @@ canvas{display:block}
       const lit = Math.floor(pct*5);
       lights.forEach((el,i) => el.classList.toggle('on', i<lit));
 
-      // Also hide when stadium.js signals ready
       const ready = /ready/i.test(textEl.textContent) ||
                     (window.StadiumView && window.StadiumView.players &&
                      Object.keys(window.StadiumView.players).length >= 15);
@@ -197,7 +200,6 @@ canvas{display:block}
     }
     setInterval(updateLoader, 150);
 
-    // Force-hide fallback if loader stalls after 12s
     setTimeout(() => {
       if (!done){
         done = true;
@@ -205,7 +207,7 @@ canvas{display:block}
         lights.forEach(el => { el.classList.remove('on'); el.classList.add('go'); });
         document.getElementById('loader').classList.add('hide');
       }
-    }, 12000);
+    }, 15000);
 
     // ── Toast ────────────────────────────────────────────
     window.showToast = function(msg){
@@ -241,11 +243,7 @@ canvas{display:block}
       b.textContent = k.charAt(0).toUpperCase() + k.slice(1);
       b.addEventListener('click', e => {
         e.preventDefault(); e.stopPropagation();
-        if (typeof window.__applyView === 'function'){
-          window.__applyView(k);
-        } else {
-          console.warn('[menu] __applyView not ready');
-        }
+        if (typeof window.__applyView === 'function') window.__applyView(k);
       });
       viewRow.appendChild(b);
     });
@@ -255,9 +253,7 @@ canvas{display:block}
     timeRow.querySelectorAll('button').forEach(b => {
       b.addEventListener('click', e => {
         e.preventDefault(); e.stopPropagation();
-        if (typeof window.__setTime === 'function'){
-          window.__setTime(b.dataset.time);
-        }
+        if (typeof window.__setTime === 'function') window.__setTime(b.dataset.time);
       });
     });
 
@@ -296,15 +292,12 @@ canvas{display:block}
     const outBtn  = document.getElementById('btn-out');
 
     function cricket(fn){
-      if (window.StadiumAnim){
-        fn(window.StadiumAnim);
-      } else {
-        if (window.showToast) window.showToast('Animator not ready');
-      }
+      if (window.StadiumAnim) fn(window.StadiumAnim);
+      else if (window.showToast) window.showToast('Animator not ready');
     }
     bowlBtn && bowlBtn.addEventListener('click', e => {
       e.preventDefault(); e.stopPropagation();
-      cricket(A => A.setNextOutcome && A.deliver(undefined, false));
+      cricket(A => A.deliver && A.deliver(undefined, false));
     });
     fourBtn && fourBtn.addEventListener('click', e => {
       e.preventDefault(); e.stopPropagation();
