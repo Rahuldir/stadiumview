@@ -15,7 +15,7 @@
 
   const FILES = {
     stadium: 'models/stadium.glb',
-    player:  'models/newplayer.glb',   // ← new player model
+    player:  'models/newplayer.glb',   // ← your new player model
     bat:     'models/bat.glb',
     stump:   'models/stump.glb'
   };
@@ -27,18 +27,13 @@
   const BOUNDARY_RADIUS = 38;
 
   // ═══════════════════════════════════════════════════════════
-  //  15 ROLES  (11 fielding + 2 batsmen + 2 umpires)
+  //  15 ROLES (11 fielding + 2 batsmen + 2 umpires)
   // ═══════════════════════════════════════════════════════════
   const ROLES = [
-    // Batsmen
     { role:'Striker',           x:-0.30, z:  8.8, rotY: Math.PI*0.72, bat:true  },
     { role:'Non-Striker',       x: 1.00, z: -8.8, rotY:-Math.PI*0.22, bat:true  },
-
-    // Umpires
     { role:'Umpire (Bowl End)', x:-1.10, z:-11.5, rotY: 0                 },
     { role:'Umpire (Sq Leg)',   x:-13,   z:  0,   rotY: Math.PI*0.5     },
-
-    // Fielding team (11)
     { role:'Bowler',            x: 0.60, z:-24,   rotY: 0,             ball:true },
     { role:'Keeper',            x:-0.30, z: 12.6, rotY: Math.PI                },
     { role:'Slip',              x: 2.4,  z: 13.5, rotY: Math.PI                },
@@ -84,10 +79,33 @@
   sun.position.set(90, 200, 90);
   scene.add(sun);
 
-  // ─── Loader ───────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════
+  //  GLTF LOADER  —  with ALL decoders attached
+  // ═══════════════════════════════════════════════════════════
   const loader = new THREE.GLTFLoader();
-  const progress = { total: 4, done: 0 };
 
+  if (THREE.DRACOLoader){
+    const draco = new THREE.DRACOLoader();
+    draco.setDecoderPath('https://unpkg.com/three@0.176.0/examples/jsm/libs/draco/');
+    loader.setDRACOLoader(draco);
+    console.log('[gltf] Draco attached');
+  }
+  if (THREE.MeshoptDecoder){
+    loader.setMeshoptDecoder(THREE.MeshoptDecoder);
+    console.log('[gltf] Meshopt attached');
+  }
+  if (THREE.KTX2Loader){
+    try {
+      const ktx2 = new THREE.KTX2Loader();
+      ktx2.setTranscoderPath('https://unpkg.com/three@0.176.0/examples/jsm/libs/basis/');
+      ktx2.detectSupport(renderer);
+      loader.setKTX2Loader(ktx2);
+      console.log('[gltf] KTX2 attached');
+    } catch(e){ console.warn('[gltf] KTX2 setup failed:', e); }
+  }
+
+  // ─── Progress ─────────────────────────────────────────────
+  const progress = { total: 4, done: 0 };
   function tickProgress(){
     progress.done++;
     const sub = document.getElementById('loaderSub');
@@ -104,9 +122,15 @@
           tickProgress();
           resolve(gltf.scene || gltf.scenes[0]);
         },
-        undefined,
+        xhr => {
+          if (xhr && xhr.total){
+            const pct = Math.round(xhr.loaded / xhr.total * 100);
+            if (pct === 25 || pct === 50 || pct === 75)
+              console.log('[loading]', key, pct + '%');
+          }
+        },
         err => {
-          console.warn('[failed]', key, err);
+          console.error('[FAILED]', key, err && err.message ? err.message : err);
           tickProgress();
           resolve(null);
         }
@@ -124,7 +148,7 @@
     obj.scale.setScalar(s);
     obj.updateMatrixWorld(true);
     box = new THREE.Box3().setFromObject(obj);
-    obj.position.y -= box.min.y;
+    obj.position.y -= box.min.y;      // lift so bottom is at y=0
     obj.updateMatrixWorld(true);
     return s;
   }
@@ -162,7 +186,7 @@
     });
   }
 
-  // ─── Field level probe ────────────────────────────────────
+  // ─── Field level probe (accepts 0) ────────────────────────
   let fieldY = 0;
   let stadiumModel = null;
 
@@ -170,21 +194,28 @@
     const ray  = new THREE.Raycaster();
     const down = new THREE.Vector3(0, -1, 0);
     const counts = {};
-    for (let x = -15; x <= 15; x += 3){
-      for (let z = -15; z <= 15; z += 3){
-        ray.set(new THREE.Vector3(x, 100, z), down);
+    let totalHits = 0;
+    for (let x = -20; x <= 20; x += 2){
+      for (let z = -20; z <= 20; z += 2){
+        ray.set(new THREE.Vector3(x, 200, z), down);
         const hits = ray.intersectObject(model, true);
         if (hits.length){
+          totalHits++;
           const key = Math.round(hits[0].point.y * 10) / 10;
           counts[key] = (counts[key] || 0) + 1;
         }
       }
     }
+    if (!totalHits){
+      console.warn('[fieldY] no probe hits — using 0');
+      return 0;
+    }
     let bestY = 0, bestCount = 0;
     for (const k in counts){
       if (counts[k] > bestCount){ bestCount = counts[k]; bestY = parseFloat(k); }
     }
-    return bestCount >= 3 ? bestY : 0;
+    console.log('[fieldY] probe: hits=' + totalHits + ' → y=' + bestY);
+    return bestY;
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -209,7 +240,6 @@
       fieldY = findFieldLevel(stadiumModel);
       console.log('[fieldY]', fieldY.toFixed(2));
     } else {
-      // Fallback ground plane
       const plane = new THREE.Mesh(
         new THREE.CircleGeometry(BOUNDARY_RADIUS + 15, 48),
         new THREE.MeshStandardMaterial({ color: 0x2d7a3e, roughness: 1 })
@@ -247,15 +277,17 @@
       });
     });
 
-    // ── Stumps (both ends) ──────────────────────────────────
+    // ═══════════════════════════════════════════════════════
+    //  STUMPS — fixed Y so they sit on the ground
+    // ═══════════════════════════════════════════════════════
     function placeStumps(z){
       if (!stumpGLB){
-        // Fallback simple stumps
         const g = new THREE.Group();
+        const mat = new THREE.MeshStandardMaterial({ color: 0xf5f5dc, roughness: 0.7 });
         for (let i=-1; i<=1; i++){
           const cyl = new THREE.Mesh(
             new THREE.CylinderGeometry(0.03, 0.03, STUMPS_HEIGHT, 8),
-            new THREE.MeshStandardMaterial({ color: 0xf5f5dc, roughness: 0.7 })
+            mat
           );
           cyl.position.set(i*0.09, STUMPS_HEIGHT/2, 0);
           g.add(cyl);
@@ -264,18 +296,26 @@
         scene.add(g);
         return g;
       }
+
       const g = THREE.SkeletonUtils.clone(stumpGLB) || stumpGLB.clone(true);
       makeStandard(g);
-      scaleToHeight(g, STUMPS_HEIGHT);
-      g.position.set(0, fieldY, z);
+      scaleToHeight(g, STUMPS_HEIGHT);   // lift so bottom is at y=0
+
+      // ✅ Set X/Z freely, ADD fieldY on top of the lift
+      g.position.x = 0;
+      g.position.z = z;
+      g.position.y += fieldY;
+
       scene.add(g);
       return g;
     }
     const stumpsStriker = placeStumps( 10);
     const stumpsBowler  = placeStumps(-10);
 
-    // ── Players ─────────────────────────────────────────────
-    const playerRefs   = {};
+    // ═══════════════════════════════════════════════════════
+    //  PLAYERS
+    // ═══════════════════════════════════════════════════════
+    const playerRefs    = {};
     const accessoryRefs = {};
 
     ROLES.forEach(r => {
@@ -294,13 +334,21 @@
         scaleToHeight(model, PLAYER_HEIGHT);
         group.add(model);
       } else {
-        // Fallback capsule
-        const cap = new THREE.Mesh(
-          new THREE.CapsuleGeometry(0.3, 1.2, 4, 8),
-          new THREE.MeshStandardMaterial({ color: 0x004BA0 })
-        );
-        cap.position.y = 0.9;
-        group.add(cap);
+        // Humanoid fallback (so it doesn't look like a pill)
+        const skin = new THREE.MeshStandardMaterial({ color: 0x004BA0, roughness: 0.7 });
+        const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.20, 0.55, 4, 8), skin);
+        torso.position.y = 1.20;
+        const head  = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 12), skin);
+        head.position.y = 1.68;
+        const lLeg  = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.55, 4, 6), skin);
+        lLeg.position.set(-0.10, 0.45, 0);
+        const rLeg  = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.55, 4, 6), skin);
+        rLeg.position.set( 0.10, 0.45, 0);
+        const lArm  = new THREE.Mesh(new THREE.CapsuleGeometry(0.06, 0.45, 4, 6), skin);
+        lArm.position.set(-0.28, 1.20, 0);
+        const rArm  = new THREE.Mesh(new THREE.CapsuleGeometry(0.06, 0.45, 4, 6), skin);
+        rArm.position.set( 0.28, 1.20, 0);
+        group.add(torso, head, lLeg, rLeg, lArm, rArm);
       }
 
       group.position.set(r.x, fieldY, r.z);
@@ -308,7 +356,6 @@
       scene.add(group);
       playerRefs[r.role] = group;
 
-      // Bat
       if (r.bat && batGLB){
         const bat = THREE.SkeletonUtils
           ? THREE.SkeletonUtils.clone(batGLB)
@@ -321,7 +368,6 @@
         accessoryRefs[r.role].bat = bat;
       }
 
-      // Ball
       if (r.ball){
         const ball = new THREE.Mesh(
           new THREE.SphereGeometry(0.036, 12, 12),
