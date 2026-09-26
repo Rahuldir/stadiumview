@@ -1,20 +1,22 @@
 /* ══════════════════════════════════════════════════════════════
-   StadiumView — scene builder (standalone, mobile-aware)
-   • Flood lights: intensity 1.8, narrower beam
-   • fieldY from multi-sample raycast (7.20)
-   • Loads single shared player model for all roles
+   StadiumView — scene builder
+   • Loads: stadium.glb · newplayer.glb · bat.glb · stump.glb
+   • All 4 GLBs loaded in parallel up front (fast loading)
+   • Real stump.glb at both ends
+   • Bats attached synchronously (no timing race)
+   • fieldY auto-detected via raycast (≈ 7.20)
+   • Stadium materials untouched → grass + pitch stay visible
    ══════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
 
-  console.log('%c[stadium.js] IIFE started — standalone v4.2', 'color:#00e676;font-weight:bold');
+  console.log('%c[stadium.js] start · v5.0', 'color:#00e676;font-weight:bold');
 
   const ua = navigator.userAgent || '';
   const IS_MOBILE =
     /Android|iPhone|iPad|iPod|Mobile|Silk|Kindle|BlackBerry|Opera Mini/i.test(ua)
     || (navigator.maxTouchPoints > 1 && window.innerWidth < 900);
   const PIXEL_RATIO = IS_MOBILE ? 1 : Math.min(window.devicePixelRatio || 1, 2);
-  console.log('[Perf] ' + (IS_MOBILE ? 'MOBILE' : 'DESKTOP') + ' · pixelRatio=' + PIXEL_RATIO);
 
   const STADIUM_FILE = 'models/stadium.glb';
   const PLAYER_FILE  = 'models/newplayer.glb';
@@ -23,6 +25,7 @@
 
   const STADIUM_SIZE    = 200;
   const PLAYER_HEIGHT   = 1.80;
+  const BAT_LENGTH      = 0.96;
   const BALL_DIAMETER   = 0.072;
   const STUMPS_HEIGHT   = 0.71;
   const BOUNDARY_RADIUS = 38;
@@ -30,21 +33,21 @@
   const TOWER_Y         = 46;
 
   const FIELD_POSITIONS = [
-    { role:'Striker',             x: 0.4, y:0, z: 8.6, rotY:Math.PI,        hasBat:true  },
-    { role:'Non-Striker',         x:-1.2, y:0, z:-8.6, rotY:0,              hasBat:true  },
-    { role:'Umpire (Bowl End)',   x:-1.0, y:0, z:-11.5,rotY:0                            },
-    { role:'Umpire (Sq Leg)',     x:-13,  y:0, z: 0,   rotY:Math.PI*0.5                  },
-    { role:'Bowler',              x: 0.5, y:0, z:-24,  rotY:0,              hasBall:true },
-    { role:'Keeper',              x: 0,   y:0, z: 14,  rotY:Math.PI                      },
-    { role:'Slip',                x: 3,   y:0, z: 14.5,rotY:Math.PI                      },
-    { role:'Third Man',           x: 15,  y:0, z: 22,  rotY:Math.PI*0.9                  },
-    { role:'Point',               x: 24,  y:0, z: 5,   rotY:Math.PI*0.85                 },
-    { role:'Cover',               x: 21,  y:0, z:-14,  rotY:Math.PI*0.62                 },
-    { role:'Mid-Off',             x: 9,   y:0, z:-25,  rotY:Math.PI*0.12                 },
-    { role:'Mid-On',              x:-9,   y:0, z:-25,  rotY:-Math.PI*0.12                },
-    { role:'Mid-Wicket',          x:-22,  y:0, z:-14,  rotY:-Math.PI*0.6                 },
-    { role:'Square Leg',          x:-24,  y:0, z: 4,   rotY:-Math.PI*0.85                },
-    { role:'Fine Leg',            x:-15,  y:0, z: 22,  rotY:Math.PI*1.15                 }
+    { role:'Striker',             x: 0.4, z: 8.6, rotY:Math.PI,        hasBat:true  },
+    { role:'Non-Striker',         x:-1.2, z:-8.6, rotY:0,              hasBat:true  },
+    { role:'Umpire (Bowl End)',   x:-1.0, z:-11.5,rotY:0                            },
+    { role:'Umpire (Sq Leg)',     x:-13,  z: 0,   rotY:Math.PI*0.5                  },
+    { role:'Bowler',              x: 0.5, z:-24,  rotY:0,              hasBall:true },
+    { role:'Keeper',              x: 0,   z: 14,  rotY:Math.PI                      },
+    { role:'Slip',                x: 3,   z: 14.5,rotY:Math.PI                      },
+    { role:'Third Man',           x: 15,  z: 22,  rotY:Math.PI*0.9                  },
+    { role:'Point',               x: 24,  z: 5,   rotY:Math.PI*0.85                 },
+    { role:'Cover',               x: 21,  z:-14,  rotY:Math.PI*0.62                 },
+    { role:'Mid-Off',             x: 9,   z:-25,  rotY:Math.PI*0.12                 },
+    { role:'Mid-On',              x:-9,   z:-25,  rotY:-Math.PI*0.12                },
+    { role:'Mid-Wicket',          x:-22,  z:-14,  rotY:-Math.PI*0.6                 },
+    { role:'Square Leg',          x:-24,  z: 4,   rotY:-Math.PI*0.85                },
+    { role:'Fine Leg',            x:-15,  z: 22,  rotY:Math.PI*1.15                 }
   ];
 
   const scene = new THREE.Scene();
@@ -72,51 +75,56 @@
   sun.position.set(80, 400, 80);
   scene.add(sun);
 
+  // ─── Loader ────────────────────────────────────────────────
   const loader = new THREE.GLTFLoader();
-  if (typeof THREE.DRACOLoader === 'function'){
+
+  if (THREE.DRACOLoader){
+    const draco = new THREE.DRACOLoader();
+    draco.setDecoderPath('https://unpkg.com/three@0.176.0/examples/jsm/libs/draco/');
+    loader.setDRACOLoader(draco);
+    console.log('[Loader] DRACO attached ✅');
+  }
+  if (THREE.MeshoptDecoder){
+    loader.setMeshoptDecoder(THREE.MeshoptDecoder);
+    console.log('[Loader] Meshopt attached ✅');
+  }
+  if (THREE.KTX2Loader){
     try {
-      const draco = new THREE.DRACOLoader();
-      draco.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/draco/');
-      loader.setDRACOLoader(draco);
-      console.log('[Loader] DRACO attached ✅');
+      const ktx2 = new THREE.KTX2Loader();
+      ktx2.setTranscoderPath('https://unpkg.com/three@0.176.0/examples/jsm/libs/basis/');
+      ktx2.detectSupport(renderer);
+      loader.setKTX2Loader(ktx2);
+      console.log('[Loader] KTX2 attached ✅');
     } catch(e){}
   }
 
-  const loadStatus = {};
+  // ─── Progress bar (4 models total) ────────────────────────
+  const progress = { total: 4, done: 0 };
+  function tickProgress(){
+    progress.done++;
+    const sub = document.getElementById('loaderSub');
+    const txt = document.getElementById('loaderText');
+    if (sub) sub.textContent = progress.done + ' / ' + progress.total;
+    if (txt && progress.done >= progress.total) txt.textContent = 'Ready';
+  }
+
   function loadOne(key, url){
-    loadStatus[key] = { status:'pending' };
-    updateList();
     return new Promise(function(resolve){
       loader.load(url, function(gltf){
         const m = gltf.scene || gltf.scenes[0];
         if (m && !m.name) m.name = key;
-        loadStatus[key] = { status:'loaded' };
-        updateList();
-        console.log('[StadiumView] ✅ ' + key);
+        console.log('[loaded]', key);
+        tickProgress();
         resolve(m);
-      }, function(p){
-        if (p.total){
-          loadStatus[key] = { status:'loading', pct: Math.round(p.loaded/p.total*100) };
-          updateList();
-        }
-      }, function(){
-        loadStatus[key] = { status:'failed' };
-        updateList();
-        console.warn('[StadiumView] ❌ ' + key);
+      }, undefined, function(err){
+        console.warn('[FAILED]', key, err && err.message ? err.message : err);
+        tickProgress();
         resolve(null);
       });
     });
   }
-  function updateList(){
-    const el = document.getElementById('modelList');
-    if (!el) return;
-    el.innerHTML = Object.keys(loadStatus).sort().map(function(k){
-      const s = loadStatus[k];
-      const icon = s.status === 'loaded' ? '✅' : s.status === 'failed' ? '❌' : '⏳';
-      return '<div>' + icon + ' ' + k + '</div>';
-    }).join('');
-  }
 
+  // ─── Helpers ───────────────────────────────────────────────
   function scaleToHeight(model, targetHeight){
     model.updateMatrixWorld(true);
     let box = new THREE.Box3().setFromObject(model);
@@ -186,34 +194,11 @@
     return bestCount >= 3 && bestY > 1 ? bestY : 7.20;
   }
 
-  function makeBat(){
-    const g = new THREE.Group();
-    const blade = new THREE.Mesh(
-      new THREE.BoxGeometry(0.11, 0.60, 0.05),
-      new THREE.MeshStandardMaterial({ color: 0xd4b483, roughness: 0.75 })
-    );
-    blade.position.y = 0.30; g.add(blade);
-    const handle = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.022, 0.022, 0.36, 6),
-      new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.6 })
-    );
-    handle.position.y = 0.78; g.add(handle);
-    return g;
-  }
   function makeBall(){
     return new THREE.Mesh(
       new THREE.SphereGeometry(BALL_DIAMETER/2, 8, 8),
       new THREE.MeshStandardMaterial({ color: 0x991b1b, roughness: 0.5 })
     );
-  }
-  function makeStumps(){
-    const g = new THREE.Group();
-    const mat = new THREE.MeshStandardMaterial({ color: 0xefe2c0, roughness: 0.7 });
-    [-0.11,0,0.11].forEach(function(x){
-      const s = new THREE.Mesh(new THREE.CylinderGeometry(0.019,0.019,STUMPS_HEIGHT,8), mat);
-      s.position.set(x, STUMPS_HEIGHT/2, 0); g.add(s);
-    });
-    return g;
   }
 
   let fieldY = 7.20;
@@ -228,11 +213,10 @@
     model.position.set(0,0,0);
     scene.add(model);
 
-    // ✅ Raycast for the pitch level — DO NOT touch materials
     fieldY = findFieldLevel(model);
     console.log('[Raycast] grass y=' + fieldY.toFixed(2));
 
-    // Only disable shadows — leave every material alone
+    // Shadows off only — DO NOT touch materials (keeps grass/pitch visible)
     model.traverse(function(c){
       if (c.isMesh){ c.castShadow = false; c.receiveShadow = false; }
     });
@@ -242,6 +226,7 @@
     stadiumRadius = Math.max(sz.x, sz.z) * 0.6;
   }
 
+  // ─── Floodlights ───────────────────────────────────────────
   const floodLights = [];
 
   function attachFloodlight(x, z){
@@ -309,16 +294,21 @@
     }
   }
 
+  // ═══════════════════════════════════════════════════════════
+  //  PLAYERS
+  // ═══════════════════════════════════════════════════════════
   const playerRefs = {};
   const accessoryRefs = {};
 
-  function placePlayers(playerGLB){
+  function placePlayers(playerGLB, batGLB){
     if (!playerGLB) return;
+
     FIELD_POSITIONS.forEach(function(pos){
       const group = new THREE.Group();
       group.name = 'PLAYER_' + pos.role.replace(/[^a-z0-9]/gi,'_');
       group.userData.role = pos.role;
 
+      // ── Player clone ───────────────────────────────────
       const pm = THREE.SkeletonUtils && THREE.SkeletonUtils.clone
         ? THREE.SkeletonUtils.clone(playerGLB)
         : playerGLB.clone(true);
@@ -330,19 +320,22 @@
       forceVisible(pm);
       group.add(pm);
 
-      if (pos.hasBat){
-        loadOne('bat', BAT_FILE).then(batModel => {
-          if (batModel) {
-            const bat = batModel.clone(true);
-            scaleToHeight(bat, 0.96);
-            bat.position.set(-0.35, 0.95, 0.25);
-            bat.rotation.x = -0.7; bat.rotation.z = 0.15;
-            group.add(bat);
-            accessoryRefs[pos.role] = accessoryRefs[pos.role] || {};
-            accessoryRefs[pos.role].bat = bat;
-          }
-        });
+      // ── Bat (attached synchronously — batGLB already loaded) ──
+      if (pos.hasBat && batGLB){
+        const bat = THREE.SkeletonUtils && THREE.SkeletonUtils.clone
+          ? THREE.SkeletonUtils.clone(batGLB)
+          : batGLB.clone(true);
+        forceVisible(bat);
+        scaleToHeight(bat, BAT_LENGTH);
+        bat.position.set(-0.35, 0.95, 0.25);
+        bat.rotation.x = -0.7;
+        bat.rotation.z = 0.15;
+        group.add(bat);
+        accessoryRefs[pos.role] = accessoryRefs[pos.role] || {};
+        accessoryRefs[pos.role].bat = bat;
       }
+
+      // ── Ball ───────────────────────────────────────────
       if (pos.hasBall){
         const ball = makeBall();
         ball.position.set(0.35, 1.35, 0.20);
@@ -356,36 +349,78 @@
       scene.add(group);
       playerRefs[pos.role] = group;
     });
-    console.log('[Players] ' + Object.keys(playerRefs).length + ' placed @ y=' + fieldY.toFixed(2));
+
+    console.log('[Players] ' + Object.keys(playerRefs).length +
+                ' placed @ y=' + fieldY.toFixed(2));
   }
 
+  // ═══════════════════════════════════════════════════════════
+  //  BOOT  — load all 4 GLBs in parallel
+  // ═══════════════════════════════════════════════════════════
   async function boot(){
-    console.log('[Boot] boot() entered');
-    const [stadiumModel, playerModel] = await Promise.all([
+    console.log('[Boot] loading all 4 models in parallel');
+
+    const [stadiumGLB, playerGLB, batGLB, stumpGLB] = await Promise.all([
       loadOne('stadium', STADIUM_FILE),
-      loadOne('player', PLAYER_FILE)
+      loadOne('player',  PLAYER_FILE),
+      loadOne('bat',     BAT_FILE),
+      loadOne('stump',   STUMP_FILE)
     ]);
 
-    placeStadium(stadiumModel);
+    // ── Stadium ───────────────────────────────────────────
+    placeStadium(stadiumGLB);
+
+    // ── Floodlights + Ad boards ───────────────────────────
     buildFloodlights();
     buildAdBoards();
 
-    const stumpsA = makeStumps(); stumpsA.position.set(0, fieldY, 10); scene.add(stumpsA);
-    const stumpsB = makeStumps(); stumpsB.position.set(0, fieldY,-10); scene.add(stumpsB);
+    // ── Stumps (real stump.glb, one at each end) ──────────
+    function placeStumps(z){
+      if (stumpGLB){
+        const g = THREE.SkeletonUtils && THREE.SkeletonUtils.clone
+          ? THREE.SkeletonUtils.clone(stumpGLB)
+          : stumpGLB.clone(true);
+        forceVisible(g);
+        scaleToHeight(g, STUMPS_HEIGHT);
+        g.position.set(0, fieldY, z);
+        scene.add(g);
+        return g;
+      }
+      // Fallback: procedural
+      const g = new THREE.Group();
+      const mat = new THREE.MeshStandardMaterial({ color: 0xefe2c0, roughness: 0.7 });
+      [-0.11, 0, 0.11].forEach(function(x){
+        const s = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.019, 0.019, STUMPS_HEIGHT, 8), mat
+        );
+        s.position.set(x, STUMPS_HEIGHT/2, 0);
+        g.add(s);
+      });
+      g.position.set(0, fieldY, z);
+      scene.add(g);
+      return g;
+    }
+    const stumpsA = placeStumps( 10);
+    const stumpsB = placeStumps(-10);
 
-    placePlayers(playerModel);
+    // ── Players (bats attached synchronously now) ─────────
+    placePlayers(playerGLB, batGLB);
 
+    // ── Public API ────────────────────────────────────────
     window.StadiumView = {
       scene, camera, renderer, sun, hemi, ambient,
       stadiumModel, stadiumRadius, fieldY,
       players: playerRefs,
       accessories: accessoryRefs,
-      stumpsStriker: stumpsA, stumpsBowler: stumpsB,
+      stumpsStriker: stumpsA,
+      stumpsBowler:  stumpsB,
       BOUNDARY_RADIUS,
       floodLights,
       setFloodlights: function(v){ floodLights.forEach(function(f){ f.setGlow(v); }); }
     };
-    console.log('[StadiumView] Ready. fieldY=' + fieldY.toFixed(2));
+
+    console.log('[StadiumView] ✅ Ready. fieldY=' + fieldY.toFixed(2) +
+                ' · players=' + Object.keys(playerRefs).length);
   }
 
   window.addEventListener('resize', function(){
