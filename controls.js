@@ -18,9 +18,11 @@
   const R_MIN   = 3;
   const R_MAX   = 180;
 
+  // ✅ Accepts 0 as a valid ground height
   function currentFieldY(){
     const f = SV && SV.fieldY;
-    return (typeof f === 'number' && f > 1) ? f : 7.19;
+    if (typeof f === 'number' && isFinite(f)) return f;
+    return 0;
   }
   function clampPhi(v){ return Math.max(PHI_MIN, Math.min(PHI_MAX, v)); }
   function clampR(v){   return Math.max(R_MIN,   Math.min(R_MAX,   v)); }
@@ -41,7 +43,7 @@
     camera.lookAt(_target);
   }
 
-  // ─── 14 View definitions (targets relative to grass) ──────
+  // ─── 14 View definitions ─────────────────────────────────
   const VIEW_DEFS = {
     overview: { x: 0,    y: 10,  z: 0,   th: Math.PI * 0.25,  ph: Math.PI * 0.30, r: 160 },
     tv:       { x: 0,    y: 4,   z: 0,   th: 0,               ph: Math.PI * 0.42, r: 60  },
@@ -78,7 +80,7 @@
     })();
   }
 
-  // ─── Public API (available immediately, before init) ──────
+  // ─── Public API ──────────────────────────────────────────
   window.__applyView = function(name){
     const view = VIEW_DEFS[name];
     if (!view){
@@ -134,7 +136,7 @@
     console.log('[Time] ' + mode);
   };
 
-  // ─── Wait for StadiumView then wire listeners ─────────────
+  // ─── Wire listeners ──────────────────────────────────────
   const wait = setInterval(function(){
     if (!window.StadiumView || !window.StadiumView.scene) return;
     clearInterval(wait);
@@ -159,7 +161,7 @@
 
       const canvas = renderer.domElement;
 
-      // ── Drag ──────────────────────────────────────────────
+      // Drag
       let dragging = false, lastX = 0, lastY = 0;
       canvas.addEventListener('pointerdown', e => {
         dragging = true; lastX = e.clientX; lastY = e.clientY;
@@ -175,14 +177,14 @@
       canvas.addEventListener('pointerleave',  () => dragging = false);
       canvas.addEventListener('pointercancel', () => dragging = false);
 
-      // ── Wheel ─────────────────────────────────────────────
+      // Wheel
       canvas.addEventListener('wheel', e => {
         e.preventDefault();
         _radius = clampR(_radius + e.deltaY * 0.5);
         updateCamera();
       }, { passive: false });
 
-      // ── Pinch ─────────────────────────────────────────────
+      // Pinch
       let pinchDist = 0;
       canvas.addEventListener('touchstart', e => {
         if (e.touches.length === 2){
@@ -203,7 +205,7 @@
       }, { passive: true });
       canvas.addEventListener('touchend', () => pinchDist = 0);
 
-      // ── Space toggles Director ────────────────────────────
+      // Space toggles Director
       document.addEventListener('keydown', e => {
         if (e.code === 'Space' && !e.repeat){
           const tag = (e.target && e.target.tagName) || '';
@@ -214,7 +216,7 @@
         }
       });
 
-      // ── Initial view ──────────────────────────────────────
+      // Initial
       window.__applyView('tv');
       window.__setTime('day');
 
