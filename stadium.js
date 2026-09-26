@@ -1,9 +1,8 @@
 /* ══════════════════════════════════════════════════════════════
    StadiumView — Scene builder
    • Loads stadium.glb · newplayer.glb · bat.glb · stump.glb
-   • Builds an explicit cricket ground (grass + pitch + creases)
-     on top of the stadium floor at a fixed FIELD_Y level
-   • Places 15 players, 2 bats, 2 stumps, 1 ball on that ground
+   • Uses the STADIUM'S OWN grass + pitch (no overlay)
+   • Places 15 players, 2 bats, 2 stumps, 1 ball on the real field
    Exposes: window.StadiumView
    ══════════════════════════════════════════════════════════════ */
 (function(){
@@ -22,23 +21,17 @@
     stump:   'models/stump.glb'
   };
 
-  // ═══════════════════════════════════════════════════════════
-  //  TUNABLE
-  // ═══════════════════════════════════════════════════════════
   const STADIUM_SIZE    = 200;
   const PLAYER_HEIGHT   = 1.80;
   const BAT_LENGTH      = 0.96;
   const STUMPS_HEIGHT   = 0.71;
   const BOUNDARY_RADIUS = 38;
 
-  // ── Where the top of the grass sits (world Y). ─────────────
-  // Everything — players, stumps, ball — is placed relative to this.
-  // Raise this number if players look sunk into the stadium floor.
-  const FIELD_Y = 7.20;                    // ← your "7+" value
-
-  // Optional: auto-adjust relative to stadium floor if you want.
-  // Set to true once you know what looks right.
-  const USE_STADIUM_FLOOR = false;
+  // ═══════════════════════════════════════════════════════════
+  //  FIELD_Y — the stadium model's own grass surface.
+  //  Your stadium.glb puts its ground at Y = 0. Nothing to change.
+  // ═══════════════════════════════════════════════════════════
+  const FIELD_Y = 0;
 
   // ═══════════════════════════════════════════════════════════
   //  15 ROLES
@@ -84,7 +77,7 @@
   renderer.toneMappingExposure = 1.0;
   document.body.appendChild(renderer.domElement);
 
-  // ─── Lights (balanced) ────────────────────────────────────
+  // ─── Balanced lighting ────────────────────────────────────
   const ambient = new THREE.AmbientLight(0xffffff, 0.9);
   scene.add(ambient);
   const hemi = new THREE.HemisphereLight(0xffffff, 0x88aa88, 0.5);
@@ -202,8 +195,7 @@
     });
   }
 
-  // ─── Floor probe (used only as a fallback) ───────────────
-  let stadiumFloorY = 0;
+  // ─── Floor probe (finds the real grass surface) ──────────
   function probeFloor(model){
     const ray  = new THREE.Raycaster();
     const down = new THREE.Vector3(0, -1, 0);
@@ -215,98 +207,21 @@
         const h = ray.intersectObject(model, true);
         if (h.length){
           hits++;
-          const key = Math.round(h[0].point.y * 10) / 10;
+          const key = Math.round(h[0].point.y * 100) / 100;
           counts[key] = (counts[key] || 0) + 1;
         }
       }
     }
-    if (!hits) return 0;
+    if (!hits){
+      console.warn('[floor probe] no hits — using 0');
+      return 0;
+    }
     let bestY = 0, bestC = 0;
     for (const k in counts){
       if (counts[k] > bestC){ bestC = counts[k]; bestY = parseFloat(k); }
     }
     console.log('[floor probe] hits=' + hits + ' → y=' + bestY);
     return bestY;
-  }
-
-  // ═══════════════════════════════════════════════════════════
-  //  CRICKET GROUND OVERLAY
-  //  Explicit grass + pitch + creases. Nothing else touches this.
-  // ═══════════════════════════════════════════════════════════
-  function buildCricketGround(Y){
-    const groundGroup = new THREE.Group();
-    groundGroup.name = 'CRICKET_GROUND';
-    groundGroup.position.y = Y;
-
-    // ── Grass outfield (big circle) ──────────────────────────
-    const grass = new THREE.Mesh(
-      new THREE.CircleGeometry(BOUNDARY_RADIUS + 15, 96),
-      new THREE.MeshStandardMaterial({
-        color: 0x2f7a35, roughness: 0.95, metalness: 0
-      })
-    );
-    grass.rotation.x = -Math.PI / 2;
-    groundGroup.add(grass);
-
-    // ── Slightly darker 30-yard ring ─────────────────────────
-    const ring = new THREE.Mesh(
-      new THREE.RingGeometry(26.5, 27.5, 96),
-      new THREE.MeshBasicMaterial({
-        color: 0xffffff, transparent: true, opacity: 0.28
-      })
-    );
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.y = 0.004;
-    groundGroup.add(ring);
-
-    // ── Boundary rope (thin white ring) ──────────────────────
-    const rope = new THREE.Mesh(
-      new THREE.RingGeometry(BOUNDARY_RADIUS - 0.15, BOUNDARY_RADIUS + 0.15, 96),
-      new THREE.MeshBasicMaterial({ color: 0xffffff })
-    );
-    rope.rotation.x = -Math.PI / 2;
-    rope.position.y = 0.005;
-    groundGroup.add(rope);
-
-    // ── Cricket pitch (tan strip down the middle) ────────────
-    const pitch = new THREE.Mesh(
-      new THREE.PlaneGeometry(3.05, 22),
-      new THREE.MeshStandardMaterial({
-        color: 0xcdb78a, roughness: 0.9, metalness: 0
-      })
-    );
-    pitch.rotation.x = -Math.PI / 2;
-    pitch.position.set(0, 0.008, 0);
-    groundGroup.add(pitch);
-
-    // ── Crease lines at both ends ────────────────────────────
-    const creaseMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-    function addCrease(z){
-      // Batting crease (across pitch)
-      const bat = new THREE.Mesh(
-        new THREE.PlaneGeometry(2.64, 0.05), creaseMat
-      );
-      bat.rotation.x = -Math.PI / 2;
-      bat.position.set(0, 0.014, z + (z > 0 ? 1.22 : -1.22));
-      groundGroup.add(bat);
-
-      // Return creases (perpendicular)
-      const side = z > 0 ? 1 : -1;
-      [-1.32, 1.32].forEach(x => {
-        const r = new THREE.Mesh(
-          new THREE.PlaneGeometry(0.05, 1.22), creaseMat
-        );
-        r.rotation.x = -Math.PI / 2;
-        r.position.set(x, 0.014, z + side * 1.83);
-        groundGroup.add(r);
-      });
-    }
-    addCrease( 8.8);
-    addCrease(-8.8);
-
-    scene.add(groundGroup);
-    console.log('[ground] grass + pitch + creases @ y=' + Y.toFixed(2));
-    return groundGroup;
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -320,25 +235,25 @@
       loadGLB('stump',   FILES.stump)
     ]);
 
+    let stadiumModel = null;
+    let detectedFieldY = FIELD_Y;
+
     // ── Stadium ─────────────────────────────────────────────
     if (stadiumGLB){
-      const stadiumModel = stadiumGLB;
+      stadiumModel = stadiumGLB;
       scaleToMaxDim(stadiumModel, STADIUM_SIZE);
       bottomToZero(stadiumModel);
       stadiumModel.position.set(0, 0, 0);
       makeStandard(stadiumModel);
       scene.add(stadiumModel);
-      stadiumFloorY = probeFloor(stadiumModel);
-      console.log('[stadium floor] y=' + stadiumFloorY.toFixed(2));
-      window.__stadiumModel = stadiumModel;
+
+      // Probe the REAL grass level
+      detectedFieldY = probeFloor(stadiumModel);
+      console.log('[fieldY detected]', detectedFieldY.toFixed(2));
     }
 
-    // ── Decide where the field top sits ──────────────────────
-    const F = USE_STADIUM_FLOOR ? stadiumFloorY : FIELD_Y;
-    console.log('[FIELD] using y=' + F.toFixed(2));
-
-    // ── Build the cricket ground overlay ─────────────────────
-    buildCricketGround(F);
+    // Use the stadium's own field level
+    const F = detectedFieldY;
 
     // ── Floodlights ─────────────────────────────────────────
     const floodLights = [];
@@ -368,7 +283,9 @@
       });
     });
 
-    // ── Stumps ──────────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════
+    //  STUMPS  — placed on the STADIUM'S pitch, at both ends
+    // ═══════════════════════════════════════════════════════
     function placeStumps(z){
       if (!stumpGLB){
         const g = new THREE.Group();
@@ -398,7 +315,9 @@
     const stumpsStriker = placeStumps( 10);
     const stumpsBowler  = placeStumps(-10);
 
-    // ── Players ─────────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════
+    //  PLAYERS  — feet on the stadium's grass
+    // ═══════════════════════════════════════════════════════
     const playerRefs    = {};
     const accessoryRefs = {};
 
@@ -467,9 +386,9 @@
     window.StadiumView = {
       scene, camera, renderer,
       sun, hemi, ambient,
-      stadiumModel:    window.__stadiumModel,
+      stadiumModel,
       fieldY:          F,
-      stadiumFloorY,
+      stadiumFloorY:   detectedFieldY,
       players:         playerRefs,
       accessories:     accessoryRefs,
       stumpsStriker,
@@ -484,7 +403,7 @@
                 ' · players=' + Object.keys(playerRefs).length);
   }
 
-  // ─── Articulated fallback ────────────────────────────────
+  // ─── Articulated fallback human ──────────────────────────
   function createFallbackPlayer(){
     const root = new THREE.Group();
     const SKIN  = new THREE.MeshStandardMaterial({ color: 0xd9a87c, roughness: 0.85 });
@@ -542,8 +461,7 @@
 
     const rUpLeg = grp('mixamorigRightUpLeg', hips,   0.10, 0, 0);
     const rLoLeg = grp('mixamorigRightLeg',   rUpLeg,  0, -0.42, 0);
-    const rFoot  = grp('mixaorigRightFoot',   rLoLeg,  0, -0.42, 0);
-    rFoot.name = 'mixamorigRightFoot';
+    const rFoot  = grp('mixamorigRightFoot',  rLoLeg,  0, -0.42, 0);
     seg(PANT, 0.085, 0.34, rUpLeg, -0.24);
     seg(SKIN, 0.070, 0.34, rLoLeg, -0.24);
     const rShoe = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.07, 0.22), SHOE);
